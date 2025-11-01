@@ -1,4 +1,4 @@
-# flutter_sandbox
+# 당근마켓 클론 프로젝트
 
 Flutter 기반 프로젝트입니다. Firebase, Google Maps, Kakao 로그인 등의 기능을 사용합니다.
 
