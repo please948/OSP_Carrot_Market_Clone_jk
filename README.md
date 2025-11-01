@@ -14,6 +14,10 @@ Flutter 기반 프로젝트입니다. Firebase, Google Maps, Kakao 로그인 등
   - 네이티브 앱 키
   - JavaScript 앱 키
 
+## 👨‍💻 개발 가이드
+
+프로젝트에 기능을 추가하거나 수정할 때는 [CONTRIBUTING.md](CONTRIBUTING.md) 파일을 참고하세요.
+
 ## 🚀 빠른 시작 (Quick Start)
 
 프로젝트를 클론한 후 다음 단계를 따라 설정하세요:
