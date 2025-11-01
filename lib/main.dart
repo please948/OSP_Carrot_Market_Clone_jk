@@ -15,15 +15,22 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 
+import 'package:flutter_sandbox/firebase_options.dart';
+import 'package:flutter_sandbox/config/api_keys.dart';
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 import 'package:flutter_sandbox/pages/home_page.dart';
 
 /// 앱의 메인 진입점
 ///
 /// Flutter 앱이 시작될 때 가장 먼저 실행되는 함수입니다.
 /// 카카오 SDK를 초기화하고 Provider를 설정한 후 앱을 실행합니다.
+///
 // Firebase 기능 사용 여부 플래그 (false면 Firebase 비활성화)
-const bool kUseFirebase = false;
+
+//const bool kUseFirebase = false;
+
+const bool kUseFirebase = true; //Firebase 활성화시 주석 제거
 
 Future<void> main() async {
   // Flutter 바인딩을 초기화합니다.
@@ -33,26 +40,36 @@ Future<void> main() async {
   // Firebase 초기화 (비활성화 시 건너뜀)
   if (kUseFirebase) {
     try {
-      await Firebase.initializeApp();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      print('✅ Firebase 초기화 성공');
     } catch (e) {
-      // 초기화 실패 시에도 앱이 구동되도록 무시
-      // print('Firebase init skipped/error: $e');
+      // 초기화 실패 시에도 앱이 구동되도록 경고만 출력
+      print('⚠️ Firebase 초기화 실패: $e');
     }
   }
 
   // 카카오 SDK를 초기화합니다.
   // 네이티브 앱 키와 자바스크립트 앱 키를 설정합니다.
+  // API 키는 lib/config/api_keys.dart 파일에서 관리됩니다.
+  // (api_keys.dart는 .gitignore에 포함되어 Git에 올라가지 않습니다)
+
   KakaoSdk.init(
-    nativeAppKey: 'ccfc6bfb577d47dc5ab4a502b03ed075', // 네이티브 앱 키
-    javaScriptAppKey: '5812bc6645f94d3381a7c2fbc8c7ce3d', // 웹 앱 키
+    nativeAppKey: ApiKeys.kakaoNativeAppKey,
+    javaScriptAppKey: ApiKeys.kakaoJavaScriptAppKey,
+    //restApiKey: ApiKeys.kakaoRestApiKey, // 필요시 주석 해제
   );
 
   // 앱을 실행합니다.
-  // ChangeNotifierProvider로 KakaoLoginProvider를 앱 전체에 제공합니다.
+  // MultiProvider를 사용하여 여러 Provider를 앱 전체에 제공합니다.
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => KakaoLoginProvider(), // Provider 인스턴스 생성
-      child: const MyApp(), // 하위 위젯으로 MyApp 전달
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => KakaoLoginProvider()),
+        ChangeNotifierProvider(create: (context) => EmailAuthProvider()),
+      ],
+      child: const MyApp(),
     ),
   );
 }
@@ -67,8 +84,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Kakao Login Test', // 앱 제목
-      theme: ThemeData(primarySwatch: Colors.yellow), // 기본 테마 (노란색)
+      title: '금오 마켓', // 앱 제목
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        useMaterial3: true,
+      ), // 기본 테마 (청록색 기반)
       home: const HomePage(), // 홈 화면으로 HomePage 설정
     );
   }

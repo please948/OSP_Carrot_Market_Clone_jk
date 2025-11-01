@@ -1,9 +1,26 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Load secrets from local.properties or environment variables
+val localProps = Properties()
+val localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) {
+    localProps.load(localPropsFile.inputStream())
+}
+
+fun secret(name: String): String =
+    (localProps.getProperty(name)
+        ?: System.getenv(name)
+        ?: "")
 
 android {
     namespace = "com.example.flutter_sandbox"
@@ -28,6 +45,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Pass secrets to AndroidManifest via placeholders
+        manifestPlaceholders["MAPS_API_KEY"] = secret("MAPS_API_KEY")
+        manifestPlaceholders["KAKAO_APP_KEY"] = secret("KAKAO_NATIVE_APP_KEY")
+        manifestPlaceholders["KAKAO_SCHEME"] = "kakao${secret("KAKAO_NATIVE_APP_KEY")}"
     }
 
     buildTypes {

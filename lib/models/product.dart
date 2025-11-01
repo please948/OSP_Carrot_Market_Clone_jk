@@ -1,38 +1,47 @@
 /// 상품 모델 클래스
-/// 
+///
 /// 당근 마켓의 상품 정보를 나타내는 데이터 모델입니다.
 /// 상품의 기본 정보, 가격, 위치, 상태 등을 포함합니다.
-/// 
+///
 /// @author Flutter Sandbox
 /// @version 1.0.0
 /// @since 2024-01-01
 
-/// 상품 상태를 나타내는 열거형
+/// 상품 상태를 나타내는 enum
 enum ProductStatus {
   /// 판매중
   onSale,
+
   /// 예약중
   reserved,
+
   /// 판매완료
   sold,
 }
 
-/// 상품 카테고리를 나타내는 열거형
+/// 상품 카테고리를 나타내는 enum
 enum ProductCategory {
   /// 디지털기기
   digital,
+
   /// 가구/인테리어
   furniture,
+
   /// 유아동
   kids,
+
   /// 반려동물
   pets,
+
   /// 스포츠/레저
   sports,
+
   /// 여성의류
   womenClothing,
+
   /// 남성의류
   menClothing,
+
   /// 기타
   etc,
 }
@@ -41,51 +50,55 @@ enum ProductCategory {
 class Product {
   /// 상품 고유 ID
   final String id;
-  
+
   /// 상품 제목
   final String title;
-  
+
   /// 상품 설명
   final String description;
-  
+
   /// 상품 가격 (원 단위)
   final int price;
-  
+
   /// 상품 이미지 URL 목록
   final List<String> imageUrls;
-  
+
   /// 상품 카테고리
   final ProductCategory category;
-  
+
   /// 상품 상태
   final ProductStatus status;
-  
+
   /// 판매자 ID
   final String sellerId;
-  
+
   /// 판매자 닉네임
   final String sellerNickname;
-  
+
   /// 판매자 프로필 이미지 URL
   final String? sellerProfileImageUrl;
-  
+
   /// 상품 위치 (동네)
   final String location;
-  
+
   /// 상품 등록일
   final DateTime createdAt;
-  
+
   /// 상품 수정일
   final DateTime updatedAt;
-  
+
   /// 상품 조회수
   final int viewCount;
-  
+
   /// 상품 찜 수
   final int likeCount;
-  
+
   /// 상품이 찜되었는지 여부
   final bool isLiked;
+
+  final double x; //위도
+
+  final double y; //경도
 
   /// Product 생성자
   const Product({
@@ -105,6 +118,8 @@ class Product {
     this.viewCount = 0,
     this.likeCount = 0,
     this.isLiked = false,
+    this.x = 0.0,
+    this.y = 0.0,
   });
 
   /// JSON에서 Product 객체를 생성하는 팩토리 생성자
@@ -156,10 +171,7 @@ class Product {
     if (price >= 10000) {
       return '${(price / 10000).toStringAsFixed(0)}만원';
     } else {
-      return '${price.toString().replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-        (Match m) => '${m[1]},',
-      )}원';
+      return '${price.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')}원';
     }
   }
 
@@ -229,7 +241,8 @@ class Product {
       status: status ?? this.status,
       sellerId: sellerId ?? this.sellerId,
       sellerNickname: sellerNickname ?? this.sellerNickname,
-      sellerProfileImageUrl: sellerProfileImageUrl ?? this.sellerProfileImageUrl,
+      sellerProfileImageUrl:
+          sellerProfileImageUrl ?? this.sellerProfileImageUrl,
       location: location ?? this.location,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

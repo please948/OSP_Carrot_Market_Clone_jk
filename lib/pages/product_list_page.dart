@@ -1,21 +1,23 @@
 /// 상품 목록 페이지
-/// 
+///
 /// 당근 마켓의 상품 목록을 표시하는 화면입니다.
 /// 카테고리별 필터링, 검색, 정렬 기능을 제공합니다.
-/// 
+///
 /// 주요 기능:
 /// - 상품 목록 표시
 /// - 카테고리별 필터링
 /// - 검색 기능
 /// - 정렬 기능 (최신순, 가격순, 인기순)
 /// - 상품 상세 페이지로 이동
-/// 
+///
 /// @author Flutter Sandbox
 /// @version 1.0.0
 /// @since 2024-01-01
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_sandbox/models/product.dart';
+import 'package:flutter_sandbox/pages/product_detail_page.dart';
 
 /// 상품 목록을 표시하는 페이지
 class ProductListPage extends StatefulWidget {
@@ -28,13 +30,13 @@ class ProductListPage extends StatefulWidget {
 class _ProductListPageState extends State<ProductListPage> {
   /// 현재 선택된 카테고리
   ProductCategory? _selectedCategory;
-  
+
   /// 검색어
   String _searchQuery = '';
-  
+
   /// 정렬 방식
   SortType _sortType = SortType.latest;
-  
+
   /// 상품 목록 (임시 데이터)
   List<Product> _products = [];
 
@@ -53,7 +55,7 @@ class _ProductListPageState extends State<ProductListPage> {
         title: '아이폰 14 Pro 256GB',
         description: '거의 새 제품입니다. 케이스와 액정보호필름 포함',
         price: 800000,
-        imageUrls: ['https://example.com/iphone.jpg'],
+        imageUrls: ['lib/dummy_data/아이폰.jpeg'],
         category: ProductCategory.digital,
         status: ProductStatus.onSale,
         sellerId: 'seller1',
@@ -69,7 +71,7 @@ class _ProductListPageState extends State<ProductListPage> {
         title: '맥북 에어 M2 13인치',
         description: '2023년 구매, 보증기간 남음',
         price: 1200000,
-        imageUrls: ['https://example.com/macbook.jpg'],
+        imageUrls: ['lib/dummy_data/맥북.jpeg'],
         category: ProductCategory.digital,
         status: ProductStatus.onSale,
         sellerId: 'seller2',
@@ -82,10 +84,10 @@ class _ProductListPageState extends State<ProductListPage> {
       ),
       Product(
         id: '3',
-        title: '나이키 에어맥스 270',
+        title: '나이키 에어포스',
         description: '사이즈 270, 3번 정도만 신었습니다',
         price: 80000,
-        imageUrls: ['https://example.com/nike.jpg'],
+        imageUrls: ['lib/dummy_data/에어포스.jpeg'],
         category: ProductCategory.sports,
         status: ProductStatus.onSale,
         sellerId: 'seller3',
@@ -105,15 +107,24 @@ class _ProductListPageState extends State<ProductListPage> {
 
     // 카테고리 필터링
     if (_selectedCategory != null) {
-      filtered = filtered.where((product) => product.category == _selectedCategory).toList();
+      filtered = filtered
+          .where((product) => product.category == _selectedCategory)
+          .toList();
     }
 
     // 검색어 필터링
     if (_searchQuery.isNotEmpty) {
-      filtered = filtered.where((product) => 
-        product.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-        product.description.toLowerCase().contains(_searchQuery.toLowerCase())
-      ).toList();
+      filtered = filtered
+          .where(
+            (product) =>
+                product.title.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ) ||
+                product.description.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+          )
+          .toList();
     }
 
     // 정렬
@@ -168,7 +179,7 @@ class _ProductListPageState extends State<ProductListPage> {
         children: [
           // 카테고리 필터
           _buildCategoryFilter(),
-          
+
           // 상품 목록
           Expanded(
             child: _filteredProducts.isEmpty
@@ -191,10 +202,10 @@ class _ProductListPageState extends State<ProductListPage> {
           // 전체 카테고리
           _buildCategoryChip('전체', null),
           const SizedBox(width: 8),
-          
+
           // 각 카테고리
-          ...ProductCategory.values.map((category) => 
-            Padding(
+          ...ProductCategory.values.map(
+            (category) => Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _buildCategoryChip(_getCategoryText(category), category),
             ),
@@ -207,7 +218,7 @@ class _ProductListPageState extends State<ProductListPage> {
   /// 카테고리 칩을 생성하는 위젯
   Widget _buildCategoryChip(String label, ProductCategory? category) {
     final isSelected = _selectedCategory == category;
-    
+
     return GestureDetector(
       onTap: () {
         setState(() {
@@ -217,7 +228,7 @@ class _ProductListPageState extends State<ProductListPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.orange : Colors.grey[100],
+          color: isSelected ? Colors.teal : Colors.grey[100],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -271,18 +282,106 @@ class _ProductListPageState extends State<ProductListPage> {
                 child: product.imageUrls.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          product.imageUrls.first,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(Icons.image, color: Colors.grey);
+                        child: Builder(
+                          builder: (context) {
+                            final imagePath = product.imageUrls.first;
+                            if (_isAssetImage(imagePath)) {
+                              final normalizedPath = _normalizeAssetPath(
+                                imagePath,
+                              );
+                              debugPrint(
+                                '이미지 로드 시도: 원본=$imagePath, 정규화=$normalizedPath',
+                              );
+                              return Image.asset(
+                                normalizedPath,
+                                fit: BoxFit.cover,
+                                width: 80,
+                                height: 80,
+                                errorBuilder: (context, error, stackTrace) {
+                                  debugPrint('❌ Asset 이미지 로드 실패: $imagePath');
+                                  debugPrint('❌ 정규화된 경로: $normalizedPath');
+                                  debugPrint('❌ 에러: $error');
+                                  debugPrint('❌ StackTrace: $stackTrace');
+                                  return Container(
+                                    color: Colors.grey[300],
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.broken_image,
+                                          color: Colors.grey,
+                                          size: 30,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '오류',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                                frameBuilder:
+                                    (
+                                      context,
+                                      child,
+                                      frame,
+                                      wasSynchronouslyLoaded,
+                                    ) {
+                                      if (wasSynchronouslyLoaded) {
+                                        debugPrint(
+                                          '✅ 이미지 동기 로드 성공: $normalizedPath',
+                                        );
+                                        return child;
+                                      }
+                                      if (frame != null) {
+                                        debugPrint(
+                                          '✅ 이미지 비동기 로드 성공: $normalizedPath',
+                                        );
+                                        return child;
+                                      }
+                                      return Container(
+                                        color: Colors.grey[200],
+                                        child: const Center(
+                                          child: SizedBox(
+                                            width: 20,
+                                            height: 20,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                              );
+                            } else {
+                              return Image.network(
+                                imagePath,
+                                fit: BoxFit.cover,
+                                width: 80,
+                                height: 80,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: Colors.grey[300],
+                                    child: const Icon(
+                                      Icons.image,
+                                      color: Colors.grey,
+                                    ),
+                                  );
+                                },
+                              );
+                            }
                           },
                         ),
                       )
                     : const Icon(Icons.image, color: Colors.grey),
               ),
               const SizedBox(width: 16),
-              
+
               // 상품 정보
               Expanded(
                 child: Column(
@@ -299,19 +398,16 @@ class _ProductListPageState extends State<ProductListPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    
+
                     // 상품 설명
                     Text(
                       product.description,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 8),
-                    
+
                     // 가격과 위치
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -320,7 +416,7 @@ class _ProductListPageState extends State<ProductListPage> {
                           product.formattedPrice,
                           style: const TextStyle(
                             fontSize: 16,
-                            color: Colors.orange,
+                            color: Colors.teal,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -334,11 +430,15 @@ class _ProductListPageState extends State<ProductListPage> {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    
+
                     // 조회수와 찜 수
                     Row(
                       children: [
-                        Icon(Icons.visibility, size: 14, color: Colors.grey[600]),
+                        Icon(
+                          Icons.visibility,
+                          size: 14,
+                          color: Colors.grey[600],
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           '${product.viewCount}',
@@ -375,11 +475,7 @@ class _ProductListPageState extends State<ProductListPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.inbox_outlined,
-            size: 64,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             '상품이 없습니다',
@@ -392,10 +488,7 @@ class _ProductListPageState extends State<ProductListPage> {
           const SizedBox(height: 8),
           Text(
             '다른 카테고리나 검색어를 시도해보세요',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
           ),
         ],
       ),
@@ -468,6 +561,28 @@ class _ProductListPageState extends State<ProductListPage> {
     );
   }
 
+  /// 이미지 URL이 asset 경로인지 확인하는 메서드
+  bool _isAssetImage(String imageUrl) {
+    return imageUrl.contains('dummy_data') ||
+        imageUrl.startsWith('lib/') ||
+        imageUrl.startsWith('assets/');
+  }
+
+  /// Asset 경로를 정규화하는 메서드
+  String _normalizeAssetPath(String path) {
+    // lib/dummy_data/ 경로는 그대로 사용
+    // Flutter에서 asset 경로는 pubspec.yaml에 등록된 경로와 일치해야 함
+    if (path.startsWith('lib/dummy_data/')) {
+      return path;
+    }
+    // assets/로 시작하는 경우
+    if (path.startsWith('assets/')) {
+      return path;
+    }
+    // 다른 경로는 그대로 반환
+    return path;
+  }
+
   /// 카테고리 텍스트를 반환하는 메서드
   String _getCategoryText(ProductCategory category) {
     switch (category) {
@@ -492,11 +607,10 @@ class _ProductListPageState extends State<ProductListPage> {
 
   /// 상품 상세 페이지로 이동하는 메서드
   void _navigateToProductDetail(Product product) {
-    // 상품 상세 페이지로 이동 (향후 구현)
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${product.title} 상세 페이지로 이동'),
-        duration: const Duration(seconds: 1),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProductDetailPage(product: product),
       ),
     );
   }
@@ -506,10 +620,13 @@ class _ProductListPageState extends State<ProductListPage> {
 enum SortType {
   /// 최신순
   latest,
+
   /// 가격 낮은순
   priceLow,
+
   /// 가격 높은순
   priceHigh,
+
   /// 인기순
   popular,
 }
