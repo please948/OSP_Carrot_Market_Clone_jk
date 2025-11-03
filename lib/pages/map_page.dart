@@ -28,7 +28,6 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  GoogleMapController? _mapController;
   LatLng? _currentPosition;
   final Map<String, BitmapDescriptor> _markerIcons = {};
 
@@ -174,7 +173,6 @@ class _MapScreenState extends State<MapScreen> {
       body: _currentPosition == null
           ? const Center(child: CircularProgressIndicator())
           : GoogleMap(
-              onMapCreated: (controller) => _mapController = controller,
               initialCameraPosition: CameraPosition(
                 target: _currentPosition!,
                 zoom: 15,

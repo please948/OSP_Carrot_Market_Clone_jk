@@ -15,11 +15,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
-import 'package:flutter_sandbox/providers/email_auth_provider.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart' as app_auth;
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
 
@@ -112,11 +112,17 @@ class _ProfilePageState extends State<ProfilePage>
     final selectedIndex = _tabController.index;
     switch (selectedIndex) {
       case 0: // 판매중
-        return _myProducts.where((p) => p.status == ProductStatus.onSale).toList();
+        return _myProducts
+            .where((p) => p.status == ProductStatus.onSale)
+            .toList();
       case 1: // 예약중
-        return _myProducts.where((p) => p.status == ProductStatus.reserved).toList();
+        return _myProducts
+            .where((p) => p.status == ProductStatus.reserved)
+            .toList();
       case 2: // 판매완료
-        return _myProducts.where((p) => p.status == ProductStatus.sold).toList();
+        return _myProducts
+            .where((p) => p.status == ProductStatus.sold)
+            .toList();
       default:
         return [];
     }
@@ -146,7 +152,7 @@ class _ProfilePageState extends State<ProfilePage>
           ),
         ],
       ),
-      body: Consumer2<KakaoLoginProvider, EmailAuthProvider>(
+      body: Consumer2<KakaoLoginProvider, app_auth.EmailAuthProvider>(
         builder: (context, kakaoProvider, emailProvider, child) {
           final kakaoUser = kakaoProvider.user;
           final emailUser = emailProvider.user;
@@ -165,10 +171,10 @@ class _ProfilePageState extends State<ProfilePage>
                 kakaoProvider,
                 emailProvider,
               ),
-              
+
               // 상품 상태 탭
               _buildTabBar(),
-              
+
               // 상품 목록
               Expanded(
                 child: _filteredProducts.isEmpty
@@ -185,12 +191,12 @@ class _ProfilePageState extends State<ProfilePage>
   /// 프로필 정보 섹션을 생성하는 위젯
   Widget _buildProfileSection(
     BuildContext context,
-    User? kakaoUser,
-    dynamic emailUser,
+    kakao.User? kakaoUser,
+    fb.User? emailUser,
     bool isLoggedIn,
     bool isKakaoLogin,
     KakaoLoginProvider kakaoProvider,
-    EmailAuthProvider emailProvider,
+    app_auth.EmailAuthProvider emailProvider,
   ) {
     return Container(
       color: Colors.white,
@@ -202,53 +208,47 @@ class _ProfilePageState extends State<ProfilePage>
             radius: 40,
             backgroundImage: isKakaoLogin
                 ? (kakaoUser?.kakaoAccount?.profile?.profileImageUrl != null
-                    ? NetworkImage(kakaoUser!.kakaoAccount!.profile!.profileImageUrl!)
-                    : null)
+                      ? NetworkImage(
+                          kakaoUser!.kakaoAccount!.profile!.profileImageUrl!,
+                        )
+                      : null)
                 : (emailUser?.photoURL != null
-                    ? NetworkImage(emailUser.photoURL!)
-                    : null),
-            child: (isKakaoLogin
+                      ? NetworkImage(emailUser!.photoURL!)
+                      : null),
+            child:
+                (isKakaoLogin
                     ? kakaoUser?.kakaoAccount?.profile?.profileImageUrl == null
                     : emailUser?.photoURL == null)
                 ? const Icon(Icons.person, color: Colors.grey, size: 40)
                 : null,
           ),
           const SizedBox(height: 16),
-          
+
           // 사용자 이름
           Text(
             isKakaoLogin
                 ? (kakaoUser?.kakaoAccount?.profile?.nickname ?? '사용자')
                 : (emailUser?.displayName ?? emailUser?.email ?? '사용자'),
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
-          
+
           // 로그인 방식 및 이메일
           Text(
             isKakaoLogin
                 ? '카카오 로그인 • ID: ${kakaoUser?.id ?? ''}'
                 : '이메일 로그인 • ${emailUser?.email ?? ''}',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
           ),
           const SizedBox(height: 4),
-          
+
           // 위치 정보
           const Text(
             '강남구 역삼동',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey),
           ),
           const SizedBox(height: 20),
-          
+
           // 로그아웃 버튼
           SizedBox(
             width: double.infinity,
@@ -342,29 +342,37 @@ class _ProfilePageState extends State<ProfilePage>
                   borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
                 ),
                 child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(8),
+                  ),
                   child: product.imageUrls.isNotEmpty
                       ? product.imageUrls.first.startsWith('lib/')
-                          ? Image.asset(
-                              product.imageUrls.first,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[200],
-                                  child: const Icon(Icons.broken_image, color: Colors.grey),
-                                );
-                              },
-                            )
-                          : Image.network(
-                              product.imageUrls.first,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[200],
-                                  child: const Icon(Icons.image, color: Colors.grey),
-                                );
-                              },
-                            )
+                            ? Image.asset(
+                                product.imageUrls.first,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: Colors.grey[200],
+                                    child: const Icon(
+                                      Icons.broken_image,
+                                      color: Colors.grey,
+                                    ),
+                                  );
+                                },
+                              )
+                            : Image.network(
+                                product.imageUrls.first,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: Colors.grey[200],
+                                    child: const Icon(
+                                      Icons.image,
+                                      color: Colors.grey,
+                                    ),
+                                  );
+                                },
+                              )
                       : Container(
                           color: Colors.grey[200],
                           child: const Icon(Icons.image, color: Colors.grey),
@@ -373,7 +381,7 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ),
             const SizedBox(height: 8),
-            
+
             // 상품 정보
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -391,7 +399,7 @@ class _ProfilePageState extends State<ProfilePage>
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  
+
                   // 가격
                   Text(
                     product.formattedPrice,
@@ -402,16 +410,19 @@ class _ProfilePageState extends State<ProfilePage>
                     ),
                   ),
                   const SizedBox(height: 4),
-                  
+
                   // 상품 상태
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: product.status == ProductStatus.onSale
                           ? Colors.teal[50]
                           : product.status == ProductStatus.reserved
-                              ? Colors.orange[50]
-                              : Colors.grey[200],
+                          ? Colors.orange[50]
+                          : Colors.grey[200],
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -421,8 +432,8 @@ class _ProfilePageState extends State<ProfilePage>
                         color: product.status == ProductStatus.onSale
                             ? Colors.teal
                             : product.status == ProductStatus.reserved
-                                ? Colors.orange
-                                : Colors.grey[700],
+                            ? Colors.orange
+                            : Colors.grey[700],
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -477,4 +488,3 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 }
-
