@@ -21,7 +21,6 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
-import 'package:flutter_sandbox/pages/product_list_page.dart';
 import 'package:flutter_sandbox/pages/product_create_page.dart';
 import 'package:flutter_sandbox/pages/product_delete_page.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
@@ -405,39 +404,6 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          // 인기 상품 섹션
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '인기 상품',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ProductListPage(),
-                      ),
-                    );
-                  },
-                  child: const Text(
-                    '더보기',
-                    style: TextStyle(
-                      color: Colors.teal,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-
           // 상품 목록 (임시 데이터)
           _buildProductList(),
 
@@ -523,6 +489,7 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: ListView(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(), // 스크롤 활성화
         children: [
           // 전체 카테고리
           _buildCategoryChip('전체', null),
