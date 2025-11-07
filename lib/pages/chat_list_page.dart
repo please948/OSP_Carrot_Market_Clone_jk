@@ -342,21 +342,7 @@ class _ChatListPageState extends State<ChatListPage> {
 
   /// 빈 상태 위젯
   Widget _buildEmptyState() {
-    String message;
-    switch (_selectedFilter) {
-      case ChatFilter.all:
-        message = '채팅방이 없어요.';
-        break;
-      case ChatFilter.selling:
-        message = '채팅방이 없어요.';
-        break;
-      case ChatFilter.buying:
-        message = '채팅방이 없어요.';
-        break;
-      case ChatFilter.unread:
-        message = '채팅방이 없어요.';
-        break;
-    }
+    String message = '채팅방이 없어요.';
 
     return Center(
       child: Column(
