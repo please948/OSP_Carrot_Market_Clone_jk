@@ -20,6 +20,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+
+
 /// 상품 상세 정보를 표시하는 페이지
 class ProductDetailPage extends StatefulWidget {
   /// 표시할 상품 정보
@@ -35,11 +40,40 @@ class ProductDetailPage extends StatefulWidget {
 }
 
 class _ProductDetailPageState extends State<ProductDetailPage> {
-  /// 현재 이미지 인덱스 (여러 이미지인 경우)
-  int _currentImageIndex = 0;
 
-  /// 찜하기 상태
-  bool _isLiked = false;
+  /// 기본 메시지
+  static const String _defaultMessage = '안녕하세요. 관심 있어서 문의드려요.';
+
+  /// 입력창 컨트롤러
+  final TextEditingController _messageController = TextEditingController();
+
+
+  int _currentImageIndex = 0;   /// 현재 이미지 인덱스 (여러 이미지인 경우)
+  bool _isLiked = false;      /// 찜하기 상태
+  bool _isSending = false;  /// 메시지 전송 상태
+  bool _hasText = false;  /// 입력창의 텍스트 여부
+
+  @override
+  void initState() {
+    super.initState();
+
+    /// 초기값 설정
+    _messageController.text = _defaultMessage;
+    _hasText = true;
+
+    /// 입력창 상태 관리
+    _messageController.addListener(() {
+      setState(() {
+        _hasText = _messageController.text.trim().isNotEmpty;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
 
   /// 이미지 URL이 asset 경로인지 확인하는 메서드
   bool _isAssetImage(String imageUrl) {
@@ -377,7 +411,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     );
   }
 
-  /// 하단 버튼 바를 생성하는 위젯
+  /// 하단 바를 생성하는 위젯
   Widget _buildBottomBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -394,57 +428,87 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       child: SafeArea(
         child: Row(
           children: [
+
             // 찜하기 버튼
             IconButton(
               icon: Icon(
                 _isLiked ? Icons.favorite : Icons.favorite_border,
                 color: _isLiked ? Colors.red : Colors.grey,
               ),
-              onPressed: () {
-                setState(() {
-                  _isLiked = !_isLiked;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(_isLiked ? '찜 목록에 추가했습니다' : '찜을 취소했습니다'),
-                    duration: const Duration(seconds: 1),
-                  ),
-                );
-              },
+              onPressed: _toggleLike,
             ),
             const SizedBox(width: 8),
 
-            // 채팅하기 버튼
+            // 메시지 입력창
             Expanded(
-              child: ElevatedButton(
-                onPressed: widget.product.isAvailable
-                    ? () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ChatPage(
-                              opponentName: widget.product.sellerNickname,
-                            ),
-                          ),
-                        );
-                      }
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              child: TextField(
+                controller: _messageController,
+                decoration: InputDecoration(
+                  hintText: _defaultMessage,
+                  hintStyle: TextStyle(
+                    color: Colors.grey[300],),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
                   ),
-                  elevation: 0,
-                ),
-                child: Text(
-                  widget.product.isAvailable ? '채팅하기' : widget.product.statusText,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
                   ),
                 ),
+                maxLines: 1,  ///????
+                enabled: !_isSending,
+
+                ///  클릭 시 전체 선택
+                onTap: () {
+                  _messageController.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: _messageController.text.length,
+                  );
+                },
+
+                /// 엔터 시 전송
+                onSubmitted: (_) {
+                  if (widget.product.isAvailable && !_isSending && _hasText) {
+                    _sendFirstMessage();
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // 보내기 버튼
+            ElevatedButton(
+              onPressed: (widget.product.isAvailable && !_isSending && _hasText)
+                  ? _sendFirstMessage  /// 메시지 전송 함수
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+              ),
+
+              ///버튼 내용
+              child: _isSending /// 전송 중일 때 로딩 표시
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+                  : Text(
+                widget.product.isAvailable ? '보내기' : widget.product.statusText,
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -452,6 +516,163 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       ),
     );
   }
+
+  /// 상품에 대한 구매자의 첫 채팅 관리
+  Future<void> _sendFirstMessage() async {
+    ///  메시지 검증
+    final message = _messageController.text.trim();
+    if (message.isEmpty) {
+      _showSnackBar('메시지를 입력해주세요');
+      return;
+    }
+
+    setState(() => _isSending = true);
+
+    try {
+      /// 2. 현재 사용자 확인
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        throw Exception('로그인이 필요합니다');
+      }
+
+      final buyerId = currentUser.uid;
+      final sellerId = widget.product.sellerId;
+
+      /// 3. 본인 상품 체크
+      if (buyerId == sellerId) {
+        throw Exception('본인의 상품에는 채팅할 수 없습니다');
+      }
+
+      // 4. 기존 채팅방 확인
+      String? chatRoomId = await _findExistingChatRoom(
+        buyerId,
+        sellerId,
+        widget.product.id,
+      );
+
+      // 5. 채팅방 없으면 생성
+      if (chatRoomId == null) {
+        chatRoomId = await _createChatRoom(buyerId, sellerId);
+      }
+
+      // 6. 메시지 전송
+      await _sendMessage(chatRoomId, buyerId, message);
+
+      // 7. 채팅 페이지로 이동
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatPage(
+            chatRoomId: chatRoomId!,
+            opponentName: widget.product.sellerNickname,
+          ),
+        ),
+      );
+    } catch (e) {
+      _showSnackBar('오류: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  /// 기존 채팅방 찾기
+  Future<String?> _findExistingChatRoom(String buyerId, String sellerId,
+                                        String productId,) async {
+
+    final querySnapshot = await FirebaseFirestore.instance
+        .collection('chatRooms')
+        .where('participants', arrayContains: buyerId)
+        .where('productId', isEqualTo: productId)
+        .get();
+
+    for (var doc in querySnapshot.docs) {
+      final data = doc.data();
+      final participants = List<String>.from(data['participants'] ?? []);
+
+      if (participants.contains(sellerId)) {
+        return doc.id;
+      }
+    }
+    return null;
+  }
+
+  /// 새 채팅방 생성
+  Future<String> _createChatRoom(String buyerId, String sellerId) async {
+
+    /// 구매자 정보 가져오기
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(buyerId)
+        .get();
+
+    final buyerName = userDoc.exists
+        ? (userDoc.data()?['name'] ?? '구매자')
+        : '구매자';
+
+    /// 채팅방 데이터 생성
+    final chatRoomData = {
+      'participants': [buyerId, sellerId],
+      'participantNames': {
+        buyerId: buyerName,
+        sellerId: widget.product.sellerNickname,
+      },
+
+      'productId': widget.product.id,
+      'productTitle': widget.product.title,
+      'productImage': widget.product.imageUrls.isNotEmpty
+          ? widget.product.imageUrls.first
+          : '',
+      'productPrice': widget.product.price,
+
+      'lastMessage': '',
+      'lastMessageTime': FieldValue.serverTimestamp(),
+
+      'unreadCount': {
+        buyerId: 0,
+        sellerId: 1,
+      },
+
+      'createdAt': FieldValue.serverTimestamp(),
+      'type': 'purchase',
+    };
+
+    /// Firestore에 저장
+    final docRef = await FirebaseFirestore.instance
+                  .collection('chatRooms')
+                  .add(chatRoomData);
+
+    return docRef.id;
+  }
+
+  /// 메시지 전송
+  Future<void> _sendMessage(String chatRoomId, String senderId, String message,) async {
+    // 메시지 추가
+    await FirebaseFirestore.instance
+        .collection('chatRooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .add({
+      'senderId': senderId,
+      'text': message,
+      'createdAt': FieldValue.serverTimestamp(),
+      'isRead': false,
+    });
+
+    /// 채팅방 정보 업데이트
+    await FirebaseFirestore.instance
+        .collection('chatRooms')
+        .doc(chatRoomId)
+        .update({
+      'lastMessage': message,
+      'lastMessageTime': FieldValue.serverTimestamp(),
+      'unreadCount.${widget.product.sellerId}': FieldValue.increment(1),
+    });
+  }
+
 
   /// 상품 상태에 따른 색상을 반환하는 메서드
   Color _getStatusColor(ProductStatus status) {
@@ -464,7 +685,28 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         return Colors.grey;
     }
   }
+
+  /// 스낵바 표시
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+
+  void _toggleLike() {
+    setState(() {
+      _isLiked = !_isLiked;
+    });
+    _showSnackBar(_isLiked ? '찜 목록에 추가했습니다' : '찜을 취소했습니다');
+  }
+
 }
+
 
 
 

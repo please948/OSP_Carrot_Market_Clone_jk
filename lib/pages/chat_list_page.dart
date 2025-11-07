@@ -1,42 +1,146 @@
 /// 채팅 목록 페이지
 ///
 /// 사용자의 모든 채팅방 목록을 보여주는 페이지입니다.
+/// Firebase Firestore를 사용하여 실시간으로 채팅방 목록을 표시합니다.
+///
+/// 주요 기능:
+/// - 실시간 채팅방 목록 표시
+/// - 필터링 (전체, 판매, 구매, 안 읽은 채팅방)
+/// - 읽지 않은 메시지 카운트 표시
+/// - 마지막 메시지 시간 표시
+///
+/// @author Flutter Sandbox
+/// @version 2.0.0
+/// @since 2024-01-01
 
 import 'package:flutter/material.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
-class ChatListPage extends StatelessWidget {
+/// 채팅방 필터 타입
+enum ChatFilter {
+  all,      // 전체
+  selling,  // 판매
+  buying,   // 구매
+  unread,   // 안 읽은 채팅방
+}
+
+/// 채팅방 모델
+class ChatRoom {
+  final String id;
+  final List<String> participants;
+  final Map<String, String> participantNames;
+  final String productId;
+  final String productTitle;
+  final String productImage;
+  final int productPrice;
+  final String lastMessage;
+  final DateTime? lastMessageTime;
+  final Map<String, int> unreadCount;
+  final String type;
+
+  ChatRoom({
+    required this.id,
+    required this.participants,
+    required this.participantNames,
+    required this.productId,
+    required this.productTitle,
+    required this.productImage,
+    required this.productPrice,
+    required this.lastMessage,
+    this.lastMessageTime,
+    required this.unreadCount,
+    required this.type,
+  });
+
+  factory ChatRoom.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+
+    return ChatRoom(
+      id: doc.id,
+      participants: List<String>.from(data['participants'] ?? []),
+      participantNames: Map<String, String>.from(data['participantNames'] ?? {}),
+      productId: data['productId'] ?? '',
+      productTitle: data['productTitle'] ?? '',
+      productImage: data['productImage'] ?? '',
+      productPrice: data['productPrice'] ?? 0,
+      lastMessage: data['lastMessage'] ?? '',
+      lastMessageTime: (data['lastMessageTime'] as Timestamp?)?.toDate(),
+      unreadCount: Map<String, int>.from(
+        (data['unreadCount'] as Map<String, dynamic>?)?.map(
+              (key, value) => MapEntry(key, value as int),
+        ) ?? {},
+      ),
+      type: data['type'] ?? 'purchase',
+    );
+  }
+
+  /// 상대방 이름 가져오기
+  String getOpponentName(String currentUserId) {
+    final opponentId = participants.firstWhere(
+          (id) => id != currentUserId,
+      orElse: () => '',
+    );
+    return participantNames[opponentId] ?? '알 수 없음';
+  }
+
+  /// 내 읽지 않은 메시지 수
+  int getMyUnreadCount(String currentUserId) {
+    return unreadCount[currentUserId] ?? 0;
+  }
+
+  /// 구매 채팅방인지 (내가 구매자)
+  bool isBuyingChat(String currentUserId) {
+    return type == 'purchase' && participants.indexOf(currentUserId) == 0;
+  }
+
+  /// 판매 채팅방인지 (내가 판매자)
+  bool isSellingChat(String currentUserId) {
+    return type == 'purchase' && participants.indexOf(currentUserId) == 1;
+  }
+}
+
+class ChatListPage extends StatefulWidget {
   const ChatListPage({super.key});
 
   @override
+  State<ChatListPage> createState() => _ChatListPageState();
+}
+
+class _ChatListPageState extends State<ChatListPage> {
+  ChatFilter _selectedFilter = ChatFilter.all;
+  String? _currentUserId;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeUser();
+  }
+
+  /// 현재 사용자 초기화
+  void _initializeUser() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _currentUserId = user.uid;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 임시 채팅 목록 데이터 (나중에 Firebase에서 가져올 예정)
-    final chatList = [
-      {
-        'id': '1',
-        'opponentName': '김철수',
-        'lastMessage': '안녕하세요! 상품 관심 있어요.',
-        'lastMessageTime': '오후 2:30',
-        'unreadCount': 2,
-        'productImage': 'https://via.placeholder.com/60',
-      },
-      {
-        'id': '2',
-        'opponentName': '이영희',
-        'lastMessage': '네, 가능합니다!',
-        'lastMessageTime': '오후 1:15',
-        'unreadCount': 0,
-        'productImage': 'https://via.placeholder.com/60',
-      },
-      {
-        'id': '3',
-        'opponentName': '박민수',
-        'lastMessage': '직거래 가능한가요?',
-        'lastMessageTime': '오전 11:20',
-        'unreadCount': 1,
-        'productImage': 'https://via.placeholder.com/60',
-      },
-    ];
+    if (_currentUserId == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('채팅'),
+        ),
+        body: const Center(
+          child: Text('로그인이 필요합니다'),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -52,52 +156,208 @@ class ChatListPage extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, color: Colors.black),
+            icon: const Icon(Icons.tune, color: Colors.black),
             onPressed: () {
-              // 검색 기능 (추후 구현)
+              // 정렬 기능 (향후 구현)
             },
           ),
           IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.black),
+            icon: const Icon(Icons.bookmark_border, color: Colors.black),
             onPressed: () {
-              // 추가 메뉴 (추후 구현)
+              // 저장된 메시지 (향후 구현)
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.notifications_outlined, color: Colors.black),
+            onPressed: () {
+              // 알림 설정 (향후 구현)
             },
           ),
         ],
       ),
-      body: chatList.isEmpty
-          ? _buildEmptyState()
-          : ListView.separated(
-              itemCount: chatList.length,
-              separatorBuilder: (context, index) => const Divider(
-                height: 1,
-                indent: 80,
-              ),
-              itemBuilder: (context, index) {
-                final chat = chatList[index];
-                return _ChatListItem(
-                  opponentName: chat['opponentName'] as String,
-                  lastMessage: chat['lastMessage'] as String,
-                  lastMessageTime: chat['lastMessageTime'] as String,
-                  unreadCount: chat['unreadCount'] as int,
-                  productImage: chat['productImage'] as String,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatPage(
-                          opponentName: chat['opponentName'] as String,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+      body: Column(
+        children: [
+          // 필터 버튼들
+          _buildFilterButtons(),
+
+          // 채팅 리스트
+          Expanded(
+            child: _buildChatList(),
+          ),
+        ],
+      ),
     );
   }
 
+  /// 필터 버튼 영역
+  Widget _buildFilterButtons() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildFilterButton('전체', ChatFilter.all),
+            const SizedBox(width: 8),
+            _buildFilterButton('판매', ChatFilter.selling),
+            const SizedBox(width: 8),
+            _buildFilterButton('구매', ChatFilter.buying),
+            const SizedBox(width: 8),
+            _buildFilterButton('안 읽은 채팅방', ChatFilter.unread),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 필터 버튼 위젯
+  Widget _buildFilterButton(String label, ChatFilter filter) {
+    final isSelected = _selectedFilter == filter;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedFilter = filter;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black : Colors.white,
+          border: Border.all(
+            color: isSelected ? Colors.black : Colors.grey[300]!,
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black,
+            fontSize: 14,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 채팅 리스트 빌드
+  Widget _buildChatList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chatRooms')
+          .where('participants', arrayContains: _currentUserId)
+          .orderBy('lastMessageTime', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                Text('오류가 발생했습니다\n${snapshot.error}'),
+              ],
+            ),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final chatRooms = snapshot.data?.docs
+            .map((doc) => ChatRoom.fromFirestore(doc))
+            .toList() ?? [];
+
+        // 필터 적용
+        final filteredChatRooms = _applyFilter(chatRooms);
+
+        if (filteredChatRooms.isEmpty) {
+          return _buildEmptyState();
+        }
+
+        return ListView.separated(
+          itemCount: filteredChatRooms.length,
+          separatorBuilder: (context, index) => const Divider(
+            height: 1,
+            indent: 80,
+          ),
+          itemBuilder: (context, index) {
+            final chatRoom = filteredChatRooms[index];
+            return _ChatListItem(
+              chatRoom: chatRoom,
+              currentUserId: _currentUserId!,
+              onTap: () {
+                _navigateToChatPage(chatRoom);
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 필터 적용
+  List<ChatRoom> _applyFilter(List<ChatRoom> chatRooms) {
+    switch (_selectedFilter) {
+      case ChatFilter.all:
+        return chatRooms;
+
+      case ChatFilter.selling:
+        return chatRooms.where((room) =>
+            room.isSellingChat(_currentUserId!)
+        ).toList();
+
+      case ChatFilter.buying:
+        return chatRooms.where((room) =>
+            room.isBuyingChat(_currentUserId!)
+        ).toList();
+
+      case ChatFilter.unread:
+        return chatRooms.where((room) =>
+        room.getMyUnreadCount(_currentUserId!) > 0
+        ).toList();
+    }
+  }
+
+  /// 채팅 페이지로 이동
+  void _navigateToChatPage(ChatRoom chatRoom) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatPage(
+          chatRoomId: chatRoom.id,  // ✅ chatRoomId 전달
+          opponentName: chatRoom.getOpponentName(_currentUserId!),
+        ),
+      ),
+    ).then((_) {
+      // 채팅 페이지에서 돌아왔을 때 목록 새로고침
+      // StreamBuilder가 자동으로 업데이트하므로 별도 처리 불필요
+    });
+  }
+
+  /// 빈 상태 위젯
   Widget _buildEmptyState() {
+    String message;
+    switch (_selectedFilter) {
+      case ChatFilter.all:
+        message = '채팅방이 없어요.';
+        break;
+      case ChatFilter.selling:
+        message = '채팅방이 없어요.';
+        break;
+      case ChatFilter.buying:
+        message = '채팅방이 없어요.';
+        break;
+      case ChatFilter.unread:
+        message = '채팅방이 없어요.';
+        break;
+    }
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -109,7 +369,7 @@ class ChatListPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            '아직 시작된 채팅이 없습니다',
+            message,
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey[600],
@@ -121,78 +381,40 @@ class ChatListPage extends StatelessWidget {
   }
 }
 
+/// 채팅 리스트  위젯
 class _ChatListItem extends StatelessWidget {
-  final String opponentName;
-  final String lastMessage;
-  final String lastMessageTime;
-  final int unreadCount;
-  final String productImage;
+  final ChatRoom chatRoom;
+  final String currentUserId;
   final VoidCallback onTap;
 
   const _ChatListItem({
-    required this.opponentName,
-    required this.lastMessage,
-    required this.lastMessageTime,
-    required this.unreadCount,
-    required this.productImage,
+    required this.chatRoom,
+    required this.currentUserId,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final opponentName = chatRoom.getOpponentName(currentUserId);
+    final unreadCount = chatRoom.getMyUnreadCount(currentUserId);
+    final timeText = _formatTime(chatRoom.lastMessageTime);
+
     return InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // 프로필 이미지 (또는 상품 이미지)
-            Stack(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(28),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Image.network(
-                      productImage,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Icon(
-                          Icons.person,
-                          color: Colors.grey[400],
-                          size: 28,
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                // 온라인 상태 표시 (선택사항)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: Colors.teal,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            // 상품 이미지
+            _buildProductImage(),
             const SizedBox(width: 12),
+
             // 채팅 정보
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 상대방 이름과 시간
                   Row(
                     children: [
                       Expanded(
@@ -207,7 +429,7 @@ class _ChatListItem extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        lastMessageTime,
+                        timeText,
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],
@@ -216,14 +438,35 @@ class _ChatListItem extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
+
+                  // 상품 제목
+                  Text(
+                    chatRoom.productTitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[600],
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                  const SizedBox(height: 2),
+
+                  // 마지막 메시지와 읽지 않은 수
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          lastMessage,
+                          chatRoom.lastMessage.isEmpty
+                              ? '새로운 채팅방입니다'
+                              : chatRoom.lastMessage,
                           style: TextStyle(
                             fontSize: 14,
-                            color: Colors.grey[700],
+                            color: unreadCount > 0
+                                ? Colors.black87
+                                : Colors.grey[700],
+                            fontWeight: unreadCount > 0
+                                ? FontWeight.w600
+                                : FontWeight.normal,
                           ),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
@@ -241,7 +484,7 @@ class _ChatListItem extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            '$unreadCount',
+                            unreadCount > 99 ? '99+' : '$unreadCount',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Colors.white,
@@ -260,5 +503,73 @@ class _ChatListItem extends StatelessWidget {
       ),
     );
   }
-}
 
+  /// 상품 이미지 위젯
+  Widget _buildProductImage() {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: chatRoom.productImage.isNotEmpty
+            ? (chatRoom.productImage.startsWith('http')
+            ? Image.network(
+          chatRoom.productImage,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildErrorImage();
+          },
+        )
+            : Image.asset(
+          chatRoom.productImage,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _buildErrorImage();
+          },
+        ))
+            : _buildErrorImage(),
+      ),
+    );
+  }
+
+  /// 에러 이미지 위젯
+  Widget _buildErrorImage() {
+    return Icon(
+      Icons.shopping_bag,
+      color: Colors.grey[400],
+      size: 28,
+    );
+  }
+
+  /// 시간 포맷팅
+  String _formatTime(DateTime? dateTime) {
+    if (dateTime == null) return '';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(dateTime.year, dateTime.month, dateTime.day);
+
+    final difference = today.difference(messageDate).inDays;
+
+    if (difference == 0) {
+      // 오늘: 시간 표시 (오후 2:30)
+      return DateFormat('a h:mm', 'ko_KR').format(dateTime);
+    } else if (difference == 1) {
+      // 어제
+      return '어제';
+    } else if (difference < 7) {
+      // 일주일 이내: 요일
+      return DateFormat('E요일', 'ko_KR').format(dateTime);
+    } else if (dateTime.year == now.year) {
+      // 올해: 월/일
+      return DateFormat('M월 d일').format(dateTime);
+    } else {
+      // 작년 이전: 년/월/일
+      return DateFormat('yyyy.M.d').format(dateTime);
+    }
+  }
+}
