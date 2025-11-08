@@ -231,12 +231,7 @@ class _SearchPageState extends State<SearchPage> {
                 return ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      product.imageUrls.first,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    ),
+                    child: _ProductThumbnail(imageUrls: product.imageUrls),
                   ),
                   title: Text(product.title),
                   subtitle:
@@ -260,6 +255,64 @@ class _SearchPageState extends State<SearchPage> {
                 );
               },
             ),
+    );
+  }
+}
+
+class _ProductThumbnail extends StatelessWidget {
+  const _ProductThumbnail({super.key, required this.imageUrls});
+
+  final List<String> imageUrls;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl =
+        imageUrls.isNotEmpty && imageUrls.first.isNotEmpty ? imageUrls.first : null;
+
+    if (imageUrl == null) {
+      return const _FallbackThumbnail();
+    }
+
+    return Image.network(
+      imageUrl,
+      width: 60,
+      height: 60,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        return const _FallbackThumbnail();
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Container(
+          width: 60,
+          height: 60,
+          color: Colors.grey[200],
+          alignment: Alignment.center,
+          child: const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FallbackThumbnail extends StatelessWidget {
+  const _FallbackThumbnail({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      color: Colors.grey[200],
+      alignment: Alignment.center,
+      child: const Icon(
+        Icons.image_not_supported,
+        color: Colors.grey,
+      ),
     );
   }
 }
