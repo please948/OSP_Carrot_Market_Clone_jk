@@ -160,9 +160,23 @@ class _MapScreenState extends State<MapScreen> {
     final hasPermission = await _handleLocationPermission();
     if (!hasPermission) return;
 
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+    
+
+    Position? position;
+    if (!isBack) {
+          try {
+            position = await Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.high,
+            );
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')),
+              );
+            }
+            return;
+          }
+   }
 
     setState(() {
       _currentPosition = isBack? kumoh : LatLng(position.latitude, position.longitude);
