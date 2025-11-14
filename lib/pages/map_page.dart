@@ -156,53 +156,59 @@ class _MapScreenState extends State<MapScreen> {
     return true;
   }
 
-  Future<void> _moveToCurrentLocation(var isBack) async {
+  Future<void> _moveToCurrentLocation(bool isBack) async {
     final hasPermission = await _handleLocationPermission();
     if (!hasPermission) return;
 
-    
+  // 금오공대로 복귀하는 경우
+    if (isBack) {
+      setState(() {
+        _currentPosition = kumoh;
+      });
 
-    Position? position;
-    if (!isBack) {
-          try {
-            position = await Geolocator.getCurrentPosition(
-              desiredAccuracy: LocationAccuracy.high,
-            );
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')),
-              );
-            }
-            return;
-          }
-   }
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _currentPosition!,
+            zoom: 17,
+          ),
+        ),
+      );
+    _fetchServerItems(kumoh);
+    return;
+  }
+
+  // 현재 위치로 이동하는 경우
+    late Position position;
+    try {
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')),
+        );
+      }
+      return;
+    }
 
     setState(() {
-      _currentPosition = isBack? kumoh : LatLng(position.latitude, position.longitude);
+      _currentPosition = LatLng(position.latitude, position.longitude);
     });
-
-    if (_currentPosition == null) return;
-
 
     _mapController?.animateCamera(
       CameraUpdate.newCameraPosition(
-         CameraPosition(
+        CameraPosition(
           target: _currentPosition!,
-          zoom: 17,   // 👍 여기 확대값 적용
+          zoom: 17,
         ),
       ),
     );
 
-    if(isBack){
-      _fetchServerItems(kumoh);
+    _fetchServerItems(LatLng(position.latitude, position.longitude));
+   }
 
-    }else{
-      _fetchServerItems(LatLng(position.latitude, position.longitude));
-    }
-
-
-  }
 
   Future<void> _loadMarkerIcons() async {
     for (int i = 0; i < mytownLocalData.length; i++) {
