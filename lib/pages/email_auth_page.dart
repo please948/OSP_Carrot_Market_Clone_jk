@@ -68,9 +68,6 @@ class _EmailAuthPageState extends State<EmailAuthPage> {
       );
       if (errorMessage == null) {
         _showSnackBar('로그인 성공!');
-        // ✨ [매우 중요] pop() 호출을 제거(주석 처리)합니다.
-        // AuthCheck가 화면을 자동으로 전환할 것입니다.
-        // if (mounted) Navigator.of(context).pop();
       } else {
         _showSnackBar(errorMessage);
       }
@@ -84,9 +81,7 @@ class _EmailAuthPageState extends State<EmailAuthPage> {
       );
       if (errorMessage == null) {
         _showSnackBar('회원가입 성공! 이메일을 확인해주세요.');
-        // ✨ [매우 중요] pop() 호출을 제거(주석 처리)합니다.
-        // AuthCheck가 화면을 자동으로 전환할 것입니다.
-        // if (mounted) Navigator.of(context).pop();
+
       } else {
         _showSnackBar(errorMessage);
       }
