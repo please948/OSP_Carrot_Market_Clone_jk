@@ -46,7 +46,8 @@ class EmailAuthProvider with ChangeNotifier {
 
   /// 생성자 - Firebase Auth 상태 변화 리스너 등록
   EmailAuthProvider() {
-    _auth.authStateChanges().listen((User? user) {
+    /// userChanges() 감지
+    _auth.userChanges().listen((User? user) {
       _user = user;
       notifyListeners();
     });

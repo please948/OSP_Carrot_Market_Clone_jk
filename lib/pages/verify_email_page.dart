@@ -1,31 +1,94 @@
+import 'dart:async'; // Timer를 사용하기 위해 import
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 
-class VerifyEmailPage extends StatelessWidget {
+class VerifyEmailPage extends StatefulWidget {
   const VerifyEmailPage({super.key});
 
   @override
+  State<VerifyEmailPage> createState() => _VerifyEmailPageState();
+}
+
+class _VerifyEmailPageState extends State<VerifyEmailPage> {
+  Timer? _timer; // 5초마다 실행될 타이머 변수
+  bool _isSendingEmail = false; // 재전송 버튼 로딩 상태
+
+  @override
+  void initState() {
+    super.initState();
+
+
+    _timer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+
+      if (FirebaseAuth.instance.currentUser == null) {
+        timer.cancel();
+        return;
+      }
+
+      /// Firebase 서버에 최신 사용자 정보 요청
+      await FirebaseAuth.instance.currentUser?.reload();
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user?.emailVerified == true) {
+        timer.cancel();
+        print("✅ 이메일 인증 확인됨. AuthCheck가 화면을 전환합니다.");
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel(); /// 화면이 사라질 때 타이머도 종료
+    super.dispose();
+  }
+
+  /// 인증 이메일 재전송 함수
+  Future<void> _resendVerificationEmail() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    setState(() => _isSendingEmail = true);
+    try {
+      await user.sendEmailVerification();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('인증 이메일을 다시 전송했습니다.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('오류: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingEmail = false);
+      }
+    }
+  }
+
+
+  @override
   Widget build(BuildContext context) {
+    /// listen: false -> 여기서는 상태 변경으로 리빌드할 필요가 없음
     final authProvider = Provider.of<EmailAuthProvider>(context, listen: false);
-    final User? user = authProvider.user;
+    final String userEmail = authProvider.user?.email ?? '회원님의 이메일';
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min, // Row의 가로 크기를 자식들(Text, IconButton) 크기만큼만 차지하도록 설정
-          children: [
-            const Text('로그아웃'),
-            // 아이콘 버튼을 title의 Row 안으로 이동
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () {
-                authProvider.logout();
-              },
-            ),
-          ],
-        ),
+        title: const Text('이메일 인증'),
+        actions: [
+          /// 로그아웃 버튼 (오른쪽 상단)
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              authProvider.logout();
+            },
+          )
+        ],
       ),
       body: Center(
         child: Padding(
@@ -42,7 +105,7 @@ class VerifyEmailPage extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                '본인 인증을 위해 ${user?.email ?? '회원님의 이메일'}로\n전송된 링크를 클릭하세요.',
+                '본인 인증을 위해 $userEmail로\n전송된 링크를 클릭하세요.',
                 style: const TextStyle(fontSize: 16, color: Colors.black54),
                 textAlign: TextAlign.center,
               ),
@@ -50,24 +113,20 @@ class VerifyEmailPage extends StatelessWidget {
 
               /// 인증 이메일 재전송 버튼
               ElevatedButton.icon(
-                icon: const Icon(Icons.send_outlined),
+                icon: _isSendingEmail
+                    ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
+                )
+                    : const Icon(Icons.send_outlined),
                 label: const Text('인증 이메일 다시 보내기'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal,
                   foregroundColor: Colors.white,
                 ),
-                onPressed: () async {
-                  try {
-                    await user?.sendEmailVerification();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('인증 이메일을 다시 전송했습니다.')),
-                    );
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('오류: ${e.toString()}')),
-                    );
-                  }
-                },
+                /// 이미 전송 중이면 버튼 비활성화
+                onPressed: _isSendingEmail ? null : _resendVerificationEmail,
               ),
             ],
           ),
