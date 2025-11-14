@@ -12,8 +12,8 @@ class VerifyEmailPage extends StatefulWidget {
 }
 
 class _VerifyEmailPageState extends State<VerifyEmailPage> {
-  Timer? _timer; // 5초마다 실행될 타이머 변수
-  bool _isSendingEmail = false; // 재전송 버튼 로딩 상태
+  Timer? _timer;
+  bool _isSendingEmail = false;
 
   @override
   void initState() {
@@ -70,6 +70,43 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
     }
   }
 
+  /// 재전송 확인 다이얼로그 함수
+  Future<void> _showResendConfirmationDialog() async {
+
+    if (_isSendingEmail) return;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('이메일 재전송'),
+          content: const Text('인증 이메일을 다시 전송하시겠습니까?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('취소'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+            ),
+            TextButton(
+              child: const Text('확인'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+            ),
+          ],
+        );
+      },
+    );
+
+    /// 사용자가 '확인'을 눌렀을 때 재전송 함수 호출
+    if (confirmed == true) {
+      /// await showDialog 이후에 mounted를  확인
+      if (mounted) {
+        await _resendVerificationEmail();
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,7 +163,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
                   foregroundColor: Colors.white,
                 ),
                 /// 이미 전송 중이면 버튼 비활성화
-                onPressed: _isSendingEmail ? null : _resendVerificationEmail,
+                onPressed: _isSendingEmail ? null : _showResendConfirmationDialog,
               ),
             ],
           ),

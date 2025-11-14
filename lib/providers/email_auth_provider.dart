@@ -124,12 +124,10 @@ class EmailAuthProvider with ChangeNotifier {
       if (user != null && !user.emailVerified) {
         try {
           await user.sendEmailVerification();
-          print('인증 이메일 발송 성공: ${user.email}');
+          debugPrint('인증 이메일 발송 성공: ${user.email}');
         } catch (e) {
-          print('인증 이메일 발송 실패: $e');
-          /// 인증 메일 재발송 버튼 만들기
-          /// 인증 메일 전송 전에 이미 회원가입은 완료된 상태이므로
-          /// 계정 잠금 문제를 해결하기 위한 시스템(비밀번호 재설정)이 필요함
+          debugPrint('인증 이메일 발송 실패: $e');
+
         }
       }
       return null;

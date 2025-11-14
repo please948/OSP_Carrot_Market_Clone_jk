@@ -162,8 +162,9 @@ class _EmailAuthPageState extends State<EmailAuthPage> {
                       /// 회원가입 모드일 때
                       if (!_isSignIn) {
 
+                        final lowercasedValue = value.toLowerCase();
                         if (!schoolDomains.any((domain) =>
-                            value.toLowerCase().endsWith(domain))) {
+                            lowercasedValue.endsWith(domain))) {
                           return '허용된 학교 이메일이 아닙니다.';
                         }
                       }
