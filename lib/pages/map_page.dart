@@ -22,7 +22,7 @@ class LocalData {
 }
 
 class Server {
-  
+
   static final List<LocalData> _items = [
     // ---- 금오공대 주변 상품(반경 500m 내 위치한 상품들) ----
     LocalData(
@@ -98,10 +98,10 @@ class _MapScreenState extends State<MapScreen> {
   final kumoh = LatLng(36.1461, 128.3939); //금오공대 위치
 
   Future<void> _fetchServerItems(LatLng center) async {
-    print(center);
+
     final items = await Server.getItemsWithinRadius(center, 500);
 
-    print(items);
+
 
     setState(() {
       mytownLocalData = items; // 🔥 기존 리스트를 서버 데이터로 교체
@@ -284,38 +284,40 @@ class _MapScreenState extends State<MapScreen> {
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 80),
         child: Column(
-          
-          mainAxisSize: MainAxisSize.min,
-          children:[
-        
-            FloatingActionButton(
-            onPressed: (){
 
-              _mapController?.animateCamera(
-                CameraUpdate.newCameraPosition(
-                  const CameraPosition(
-                    target: LatLng(36.1461, 128.3939),
-                    zoom: 17,   // 👍 여기 확대값 적용
-                  ),
-                ),
-              );
-        
-              _moveToCurrentLocation(false);
-            },
-            child: const Icon(Icons.my_location),
-          ),
-            FloatingActionButton(
-              heroTag: "goBack",
-              onPressed: ()async{
+            mainAxisSize: MainAxisSize.min,
+            children:[
+
+              FloatingActionButton(
+                onPressed: (){
 
 
-        
-                _moveToCurrentLocation(true);
-              },
-              child: const Icon(Icons.school),
-            ),
-            const SizedBox(height: 12),
-        ]
+
+                  _moveToCurrentLocation(false);
+                },
+                child: const Icon(Icons.my_location),
+              ),
+              FloatingActionButton(
+                heroTag: "goBack",
+                onPressed: ()async{
+
+                  _mapController?.animateCamera(
+                    CameraUpdate.newCameraPosition(
+                      const CameraPosition(
+                        target: LatLng(36.1461, 128.3939),
+                        zoom: 17,   // 👍 여기 확대값 적용
+                      ),
+                    ),
+                  );
+
+
+
+                  _moveToCurrentLocation(true);
+                },
+                child: const Icon(Icons.school),
+              ),
+              const SizedBox(height: 12),
+            ]
         ),
       ),
     );
