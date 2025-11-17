@@ -15,7 +15,6 @@
 /// @since 2024-01-01
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_sandbox/pages/search_page.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
@@ -34,6 +33,9 @@ import 'package:flutter_sandbox/data/mock_products.dart';
 import 'package:flutter_sandbox/providers/ad_provider.dart';
 import 'package:flutter_sandbox/models/ad.dart';
 import 'package:flutter_sandbox/widgets/ad_card.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
 
 /// 앱의 홈 페이지를 나타내는 위젯
 ///
@@ -82,6 +84,9 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildScaffold(BuildContext context, bool isLoggedIn) {
+    final AppUserProfile? appUser = context.watch<EmailAuthProvider>().user;
+    final locationLabel =
+        appUser != null ? _resolveLocationLabel(appUser) : '강남구 역삼동';
     return Scaffold(
       // 금오 마켓 스타일의 앱바
       appBar: AppBar(
@@ -112,10 +117,10 @@ class _HomePageState extends State<HomePage> {
                   MaterialPageRoute(builder: (context) => const MapScreen()),
                 );
               },
-              child: const Row(
+              child: Row(
                 children: [
                   Text(
-                    '강남구 역삼동',
+                    locationLabel,
                     style: TextStyle(
                       color: Colors.black,
                       fontSize: 18,
@@ -282,6 +287,17 @@ class _HomePageState extends State<HomePage> {
         },
       ),
     );
+  }
+
+  String _resolveLocationLabel(AppUserProfile user) {
+    if (!AppConfig.useFirebase) {
+      final universityName =
+          LocalAppRepository.instance.getUniversityName(user.universityId);
+      if (universityName != null && universityName.isNotEmpty) {
+        return universityName;
+      }
+    }
+    return user.region.name;
   }
 
   void _toggleFabMenu() {
@@ -622,7 +638,13 @@ class _HomePageState extends State<HomePage> {
   /// 상품 목록을 생성하는 위젯 (임시 데이터)
   /// 상품 인시 데이터 넣는 부분
   Widget _buildProductList() {
-    final allProducts = getMockProducts().map((product) {
+    final viewerUid = context.read<EmailAuthProvider>().user?.uid;
+    final products = AppConfig.useFirebase
+        ? getMockProducts()
+        : LocalAppRepository.instance
+            .getProducts(viewerUid: viewerUid)
+            .toList();
+    final allProducts = products.map((product) {
       return {
         'title': product.title,
         'price': product.formattedPrice,

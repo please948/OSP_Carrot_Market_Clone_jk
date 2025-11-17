@@ -15,19 +15,24 @@
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
 
 /// 이메일 인증 상태를 관리하는 Provider 클래스
 ///
 /// ChangeNotifier를 mixin하여 상태 변경 시 구독자들에게 알림을 보냅니다.
 /// Firebase Auth를 사용하여 실제 인증 로직을 처리합니다.
 class EmailAuthProvider with ChangeNotifier {
-  /// Firebase Auth 인스턴스
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final LocalAppRepository _localRepo = LocalAppRepository.instance;
+  FirebaseAuth? _auth;
+  StreamSubscription<User?>? _firebaseSubscription;
+  StreamSubscription<AppUserProfile?>? _localSubscription;
 
   /// 현재 로그인된 사용자 정보
   /// null이면 로그인되지 않은 상태
-  User? _user;
+  AppUserProfile? _user;
 
   /// 로딩 상태
   bool _loading = false;
@@ -36,7 +41,7 @@ class EmailAuthProvider with ChangeNotifier {
   String? _errorMessage;
 
   /// 현재 로그인된 사용자 정보를 반환합니다.
-  User? get user => _user;
+  AppUserProfile? get user => _user;
 
   /// 로딩 상태를 반환합니다.
   bool get loading => _loading;
@@ -46,11 +51,19 @@ class EmailAuthProvider with ChangeNotifier {
 
   /// 생성자 - Firebase Auth 상태 변화 리스너 등록
   EmailAuthProvider() {
-    /// userChanges() 감지
-    _auth.userChanges().listen((User? user) {
-      _user = user;
-      notifyListeners();
-    });
+    if (AppConfig.useFirebase) {
+      _auth = FirebaseAuth.instance;
+      _firebaseSubscription = _auth!.userChanges().listen((User? user) {
+        _user = user == null ? null : _mapFirebaseUser(user);
+        notifyListeners();
+      });
+    } else {
+      _localSubscription =
+          _localRepo.authStateChanges.listen((AppUserProfile? user) {
+        _user = user;
+        notifyListeners();
+      });
+    }
   }
 
   /// 이메일과 비밀번호로 로그인합니다.
@@ -64,20 +77,27 @@ class EmailAuthProvider with ChangeNotifier {
   Future<String?> login(String email, String password) async {
     setState(loading: true, resetError: true);
     try {
-      /// 로그인 시도
-      await _auth
-          .signInWithEmailAndPassword(email: email.trim(), password: password)
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('로그인 요청 시간 초과');
-            },
-          );
-
-      /// emailVerified 검사, signOut, 에러 반환 로직을 모두 제거
-      /// 로그인 시도에 성공하면 이후 과정은 AuthCheck가 처리함
-      /// 로그인 시도만 처리함
-      return null;
+      if (AppConfig.useFirebase) {
+        await _auth!
+            .signInWithEmailAndPassword(
+              email: email.trim(),
+              password: password,
+            )
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () {
+                throw TimeoutException('로그인 요청 시간 초과');
+              },
+            );
+        return null;
+      } else {
+        final errorMessage =
+            await _localRepo.login(email.trim(), password.trim());
+        if (errorMessage != null) {
+          setState(errorMessage: errorMessage);
+        }
+        return errorMessage;
+      }
     } on TimeoutException {
       final errorMsg = '네트워크 연결이 불안정합니다. 인터넷 연결을 확인하고 다시 시도해주세요.';
       setState(errorMessage: errorMsg);
@@ -106,28 +126,37 @@ class EmailAuthProvider with ChangeNotifier {
   Future<String?> signUp(String email, String password) async {
     setState(loading: true, errorMessage: null);
     try {
-      final userCredential = await _auth
-          .createUserWithEmailAndPassword(
-            email: email.trim(),
-            password: password,
-          )
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('회원가입 요청 시간 초과');
-            },
-          );
+      if (AppConfig.useFirebase) {
+        final userCredential = await _auth!
+            .createUserWithEmailAndPassword(
+              email: email.trim(),
+              password: password,
+            )
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () {
+                throw TimeoutException('회원가입 요청 시간 초과');
+              },
+            );
 
-      User? user = userCredential.user;
-      if (user != null && !user.emailVerified) {
-        try {
-          await user.sendEmailVerification();
-          debugPrint('인증 이메일 발송 성공: ${user.email}');
-        } catch (e) {
-          debugPrint('인증 이메일 발송 실패: $e');
+        final user = userCredential.user;
+        if (user != null && !user.emailVerified) {
+          try {
+            await user.sendEmailVerification();
+            debugPrint('인증 이메일 발송 성공: ${user.email}');
+          } catch (e) {
+            debugPrint('인증 이메일 발송 실패: $e');
+          }
         }
+        return null;
+      } else {
+        final errorMessage =
+            await _localRepo.signUp(email.trim(), password.trim());
+        if (errorMessage != null) {
+          setState(errorMessage: errorMessage);
+        }
+        return errorMessage;
       }
-      return null;
     } on TimeoutException {
       final errorMsg = '네트워크 연결이 불안정합니다. 인터넷 연결을 확인하고 다시 시도해주세요.';
       setState(errorMessage: errorMsg);
@@ -148,7 +177,11 @@ class EmailAuthProvider with ChangeNotifier {
   /// 로그아웃을 수행
   /// 사용자 정보를 초기화한 후 UI에 변경사항을 알림
   Future<void> logout() async {
-    await _auth.signOut();
+    if (AppConfig.useFirebase) {
+      await _auth?.signOut();
+    } else {
+      await _localRepo.logout();
+    }
     _user = null;
     notifyListeners();
   }
@@ -195,5 +228,25 @@ class EmailAuthProvider with ChangeNotifier {
       default:
         return '인증 오류: $code';
     }
+  }
+
+  AppUserProfile _mapFirebaseUser(User user) {
+    return AppUserProfile(
+      uid: user.uid,
+      displayName: user.displayName ?? (user.email ?? '사용자'),
+      email: user.email ?? '',
+      region: defaultRegion,
+      universityId: 'UNKNOWN',
+      emailVerified: user.emailVerified,
+      createdAt: user.metadata.creationTime ?? DateTime.now(),
+      photoUrl: user.photoURL,
+    );
+  }
+
+  @override
+  void dispose() {
+    _firebaseSubscription?.cancel();
+    _localSubscription?.cancel();
+    super.dispose();
   }
 }

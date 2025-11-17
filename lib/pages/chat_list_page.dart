@@ -16,8 +16,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
 
 /// 채팅방 필터 타입
 enum ChatFilter {
@@ -111,27 +115,11 @@ class ChatListPage extends StatefulWidget {
 
 class _ChatListPageState extends State<ChatListPage> {
   ChatFilter _selectedFilter = ChatFilter.all;
-  String? _currentUserId;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeUser();
-  }
-
-  /// 현재 사용자 초기화
-  void _initializeUser() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      setState(() {
-        _currentUserId = user.uid;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUserId == null) {
+    final currentUserId = context.watch<EmailAuthProvider>().user?.uid;
+    if (currentUserId == null) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('채팅'),
@@ -182,7 +170,7 @@ class _ChatListPageState extends State<ChatListPage> {
 
           // 채팅 리스트
           Expanded(
-            child: _buildChatList(),
+            child: _buildChatList(currentUserId),
           ),
         ],
       ),
@@ -242,59 +230,86 @@ class _ChatListPageState extends State<ChatListPage> {
   }
 
   /// 채팅 리스트 빌드
-  Widget _buildChatList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chatRooms')
-          .where('participants', arrayContains: _currentUserId)
-          .orderBy('lastMessageTime', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                const SizedBox(height: 16),
-                Text('오류가 발생했습니다\n${snapshot.error}'),
-              ],
-            ),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
-        }
-
-        final chatRooms = snapshot.data?.docs
-            .map((doc) => ChatRoom.fromFirestore(doc))
-            .toList() ?? [];
-
-        // 필터 적용
-        final filteredChatRooms = _applyFilter(chatRooms);
-
-        if (filteredChatRooms.isEmpty) {
-          return _buildEmptyState();
-        }
-
-        return ListView.separated(
-          itemCount: filteredChatRooms.length,
-          separatorBuilder: (context, index) => const Divider(
-            height: 1,
-            indent: 80,
-          ),
-          itemBuilder: (context, index) {
-            final chatRoom = filteredChatRooms[index];
-            return _ChatListItem(
-              chatRoom: chatRoom,
-              currentUserId: _currentUserId!,
-              onTap: () {
-                _navigateToChatPage(chatRoom);
-              },
+  Widget _buildChatList(String currentUserId) {
+    if (AppConfig.useFirebase) {
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('chatRooms')
+            .where('participants', arrayContains: currentUserId)
+            .orderBy('lastMessageTime', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('오류가 발생했습니다\n${snapshot.error}'),
+                ],
+              ),
             );
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final chatRooms = snapshot.data?.docs
+                  .map((doc) => ChatRoom.fromFirestore(doc))
+                  .toList() ??
+              [];
+
+          final filteredChatRooms = _applyFilter(chatRooms, currentUserId);
+
+          if (filteredChatRooms.isEmpty) {
+            return _buildEmptyState();
+          }
+
+          return _buildChatRoomList(filteredChatRooms, currentUserId);
+        },
+      );
+    } else {
+      return StreamBuilder<List<AppChatRoom>>(
+        stream: LocalAppRepository.instance.watchChatRooms(currentUserId),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('오류가 발생했습니다\n${snapshot.error}'),
+            );
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final rooms = snapshot.data ?? [];
+          final converted = rooms
+              .map((room) => _convertLocalRoom(room))
+              .toList(growable: false);
+          final filtered = _applyFilter(converted, currentUserId);
+          if (filtered.isEmpty) {
+            return _buildEmptyState();
+          }
+          return _buildChatRoomList(filtered, currentUserId);
+        },
+      );
+    }
+  }
+
+  Widget _buildChatRoomList(List<ChatRoom> chatRooms, String currentUserId) {
+    return ListView.separated(
+      itemCount: chatRooms.length,
+      separatorBuilder: (context, index) => const Divider(
+        height: 1,
+        indent: 80,
+      ),
+      itemBuilder: (context, index) {
+        final chatRoom = chatRooms[index];
+        return _ChatListItem(
+          chatRoom: chatRoom,
+          currentUserId: currentUserId,
+          onTap: () {
+            _navigateToChatPage(chatRoom, currentUserId);
           },
         );
       },
@@ -302,36 +317,53 @@ class _ChatListPageState extends State<ChatListPage> {
   }
 
   /// 필터 적용
-  List<ChatRoom> _applyFilter(List<ChatRoom> chatRooms) {
+  List<ChatRoom> _applyFilter(List<ChatRoom> chatRooms, String currentUserId) {
     switch (_selectedFilter) {
       case ChatFilter.all:
         return chatRooms;
 
       case ChatFilter.selling:
         return chatRooms.where((room) =>
-            room.isSellingChat(_currentUserId!)
+            room.isSellingChat(currentUserId)
         ).toList();
 
       case ChatFilter.buying:
         return chatRooms.where((room) =>
-            room.isBuyingChat(_currentUserId!)
+            room.isBuyingChat(currentUserId)
         ).toList();
 
       case ChatFilter.unread:
         return chatRooms.where((room) =>
-        room.getMyUnreadCount(_currentUserId!) > 0
+        room.getMyUnreadCount(currentUserId) > 0
         ).toList();
     }
   }
 
+  ChatRoom _convertLocalRoom(AppChatRoom room) {
+    final listing = LocalAppRepository.instance.getListing(room.listingId);
+    return ChatRoom(
+      id: room.id,
+      participants: room.participants,
+      participantNames: Map<String, String>.from(room.participantNames),
+      productId: room.listingId,
+      productTitle: room.listingTitle,
+      productImage: room.listingImage ?? '',
+      productPrice: listing?.price ?? 0,
+      lastMessage: room.lastMessage,
+      lastMessageTime: room.lastMessageTime,
+      unreadCount: Map<String, int>.from(room.unread),
+      type: room.listingType == ListingType.groupBuy ? 'group' : 'purchase',
+    );
+  }
+
   /// 채팅 페이지로 이동
-  void _navigateToChatPage(ChatRoom chatRoom) {
+  void _navigateToChatPage(ChatRoom chatRoom, String currentUserId) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ChatPage(
           chatRoomId: chatRoom.id,  // ✅ chatRoomId 전달
-          opponentName: chatRoom.getOpponentName(_currentUserId!),
+          opponentName: chatRoom.getOpponentName(currentUserId),
         ),
       ),
     ).then((_) {

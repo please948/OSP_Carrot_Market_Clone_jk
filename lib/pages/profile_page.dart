@@ -15,7 +15,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
@@ -25,6 +24,7 @@ import 'package:flutter_sandbox/pages/product_detail_page.dart';
 import 'package:flutter_sandbox/services/admin_service.dart';
 import 'package:flutter_sandbox/pages/admin_page.dart';
 import 'package:flutter_sandbox/data/mock_products.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
 
 /// 사용자 프로필 페이지를 나타내는 위젯
 class ProfilePage extends StatefulWidget {
@@ -185,7 +185,7 @@ class _ProfilePageState extends State<ProfilePage>
   Widget _buildProfileSection(
     BuildContext context,
     kakao.User? kakaoUser,
-    fb.User? emailUser,
+    AppUserProfile? emailUser,
     bool isLoggedIn,
     bool isKakaoLogin,
     KakaoLoginProvider kakaoProvider,
@@ -205,13 +205,13 @@ class _ProfilePageState extends State<ProfilePage>
                           kakaoUser!.kakaoAccount!.profile!.profileImageUrl!,
                         )
                       : null)
-                : (emailUser?.photoURL != null
-                      ? NetworkImage(emailUser!.photoURL!)
+                : (emailUser?.photoUrl != null
+                      ? NetworkImage(emailUser!.photoUrl!)
                       : null),
             child:
                 (isKakaoLogin
                     ? kakaoUser?.kakaoAccount?.profile?.profileImageUrl == null
-                    : emailUser?.photoURL == null)
+                    : emailUser?.photoUrl == null)
                 ? const Icon(Icons.person, color: Colors.grey, size: 40)
                 : null,
           ),

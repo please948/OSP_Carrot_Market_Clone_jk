@@ -14,8 +14,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
 
 /// Firestore 컬렉션 및 필드 상수
 class ChatConstants {
@@ -79,8 +83,20 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
-    _initializeUser();
-    _markMessagesAsRead();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final uid = context.watch<EmailAuthProvider>().user?.uid;
+    if (uid != _currentUserId) {
+      setState(() {
+        _currentUserId = uid;
+      });
+      if (_currentUserId != null) {
+        _markMessagesAsRead();
+      }
+    }
   }
 
   @override
@@ -90,46 +106,42 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  /// 현재 사용자 초기화
-  void _initializeUser() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      setState(() {
-        _currentUserId = user.uid;
-      });
-    }
-  }
-
   /// 메시지를 읽음으로 표시
   Future<void> _markMessagesAsRead() async {
     if (_currentUserId == null) return;
 
-    try {
-      final messagesSnapshot = await FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .collection(ChatConstants.messagesCollection)
-          .where('senderId', isNotEqualTo: _currentUserId)
-          .where('isRead', isEqualTo: false)
-          .get();
+    if (AppConfig.useFirebase) {
+      try {
+        final messagesSnapshot = await FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .collection(ChatConstants.messagesCollection)
+            .where('senderId', isNotEqualTo: _currentUserId)
+            .where('isRead', isEqualTo: false)
+            .get();
 
-      final batch = FirebaseFirestore.instance.batch();
+        final batch = FirebaseFirestore.instance.batch();
 
-      for (var doc in messagesSnapshot.docs) {
-        batch.update(doc.reference, {'isRead': true});
+        for (var doc in messagesSnapshot.docs) {
+          batch.update(doc.reference, {'isRead': true});
+        }
+
+        await batch.commit();
+
+        await FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .update({
+          '${ChatConstants.unreadCount}.$_currentUserId': 0,
+        });
+      } catch (e) {
+        debugPrint('메시지 읽음 처리 실패: $e');
       }
-
-      await batch.commit();
-
-      /// 읽지 않은 메시지 카운트 초기화
-      await FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .update({
-        '${ChatConstants.unreadCount}.$_currentUserId': 0,
-      });
-    } catch (e) {
-      debugPrint('메시지 읽음 처리 실패: $e');
+    } else {
+      await LocalAppRepository.instance.markMessagesAsRead(
+        roomId: widget.chatRoomId,
+        userId: _currentUserId!,
+      );
     }
   }
 
@@ -144,45 +156,50 @@ class _ChatPageState extends State<ChatPage> {
     setState(() => _isSending = true);
 
     try {
-      /// 채팅방 정보 가져오기
-      final chatRoomDoc = await FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .get();
+      if (AppConfig.useFirebase) {
+        final chatRoomDoc = await FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .get();
 
-      if (!chatRoomDoc.exists) {
-        throw Exception('채팅방을 찾을 수 없습니다');
+        if (!chatRoomDoc.exists) {
+          throw Exception('채팅방을 찾을 수 없습니다');
+        }
+
+        final participants = List<String>.from(
+            chatRoomDoc.data()?['participants'] ?? []
+        );
+        final recipientId = participants.firstWhere(
+              (id) => id != _currentUserId,
+          orElse: () => '',
+        );
+
+        await FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .collection(ChatConstants.messagesCollection)
+            .add({
+          'senderId': _currentUserId,
+          'text': message,
+          'createdAt': FieldValue.serverTimestamp(),
+          'isRead': false,
+        });
+
+        await FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .update({
+          ChatConstants.lastMessage: message,
+          ChatConstants.lastMessageTime: FieldValue.serverTimestamp(),
+          '${ChatConstants.unreadCount}.$recipientId': FieldValue.increment(1),
+        });
+      } else {
+        await LocalAppRepository.instance.sendMessage(
+          roomId: widget.chatRoomId,
+          senderUid: _currentUserId!,
+          text: message,
+        );
       }
-
-      final participants = List<String>.from(
-          chatRoomDoc.data()?['participants'] ?? []
-      );
-      final recipientId = participants.firstWhere(
-            (id) => id != _currentUserId,
-        orElse: () => '',
-      );
-
-      /// 메시지 추가 입력
-      await FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .collection(ChatConstants.messagesCollection)
-          .add({
-        'senderId': _currentUserId,
-        'text': message,
-        'createdAt': FieldValue.serverTimestamp(),
-        'isRead': false,
-      });
-
-      /// 채팅방 정보 업데이트
-      await FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .update({
-        ChatConstants.lastMessage: message,
-        ChatConstants.lastMessageTime: FieldValue.serverTimestamp(),
-        '${ChatConstants.unreadCount}.$recipientId': FieldValue.increment(1),
-      });
 
       /// 입력창 초기화
       _messageController.clear();
@@ -282,84 +299,112 @@ class _ChatPageState extends State<ChatPage> {
 
   /// 메시지 목록 위젯
   Widget _buildMessageList() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection(ChatConstants.chatRoomsCollection)
-          .doc(widget.chatRoomId)
-          .collection(ChatConstants.messagesCollection)
-          .orderBy('createdAt', descending: false)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Text('오류가 발생했습니다: ${snapshot.error}'),
-          );
-        }
-
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
-        }
-
-        final messages = snapshot.data?.docs
-            .map((doc) => ChatMessage.fromFirestore(doc))
-            .toList() ?? [];
-
-        if (messages.isEmpty) {
-          return const Center(
-            child: Text(
-              '메시지가 없습니다\n첫 메시지를 보내보세요!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: 16,
-              ),
-            ),
-          );
-        }
-
-        /// 새 메시지가 추가되면 스크롤
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom();
-        });
-
-        return ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.all(16),
-          itemCount: messages.length,
-          itemBuilder: (context, index) {
-            final message = messages[index];
-            final isMine = message.senderId == _currentUserId;
-
-            /// 날짜 구분선 표시 여부 확인
-            bool showDateDivider = false;
-            if (index == 0) {
-              showDateDivider = true;
-            } else {
-              final prevMessage = messages[index - 1];
-              showDateDivider = !_isSameDay(
-                prevMessage.createdAt,
-                message.createdAt,
-              );
-            }
-
-            return Column(
-              children: [
-                if (showDateDivider)
-                  _DateDivider(date: message.createdAt),
-
-                _MessageBubble(
-                  message: message,
-                  isMine: isMine,
-                ),
-
-                const SizedBox(height: 8),
-              ],
+    if (AppConfig.useFirebase) {
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection(ChatConstants.chatRoomsCollection)
+            .doc(widget.chatRoomId)
+            .collection(ChatConstants.messagesCollection)
+            .orderBy('createdAt', descending: false)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('오류가 발생했습니다: ${snapshot.error}'),
             );
-          },
+          }
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          final messages = snapshot.data?.docs
+                  .map((doc) => ChatMessage.fromFirestore(doc))
+                  .toList() ??
+              [];
+          return _buildMessageListView(messages);
+        },
+      );
+    } else {
+      return StreamBuilder<List<AppChatMessage>>(
+        stream: LocalAppRepository.instance.watchMessages(widget.chatRoomId),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('오류가 발생했습니다: ${snapshot.error}'),
+            );
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final messages =
+              snapshot.data?.map(_convertLocalMessage).toList() ?? [];
+          return _buildMessageListView(messages);
+        },
+      );
+    }
+  }
+
+  Widget _buildMessageListView(List<ChatMessage> messages) {
+    if (messages.isEmpty) {
+      return const Center(
+        child: Text(
+          '메시지가 없습니다\n첫 메시지를 보내보세요!',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 16,
+          ),
+        ),
+      );
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottom();
+    });
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.all(16),
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final message = messages[index];
+        final isMine = message.senderId == _currentUserId;
+
+        bool showDateDivider = false;
+        if (index == 0) {
+          showDateDivider = true;
+        } else {
+          final prevMessage = messages[index - 1];
+          showDateDivider = !_isSameDay(
+            prevMessage.createdAt,
+            message.createdAt,
+          );
+        }
+
+        return Column(
+          children: [
+            if (showDateDivider) _DateDivider(date: message.createdAt),
+            _MessageBubble(
+              message: message,
+              isMine: isMine,
+            ),
+            const SizedBox(height: 8),
+          ],
         );
       },
+    );
+  }
+
+  ChatMessage _convertLocalMessage(AppChatMessage message) {
+    return ChatMessage(
+      id: message.id,
+      senderId: message.senderUid,
+      text: message.text,
+      createdAt: message.sentAt,
+      isRead: message.readBy.contains(_currentUserId),
     );
   }
 

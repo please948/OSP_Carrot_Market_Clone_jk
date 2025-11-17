@@ -17,11 +17,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
 
 enum _ProductMoreAction {
   delete,
@@ -63,6 +67,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     /// 초기값 설정
     _messageController.text = _defaultMessage;
     _hasText = true;
+    _isLiked = widget.product.isLiked;
 
     /// 입력창 상태 관리
     _messageController.addListener(() {
@@ -563,12 +568,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     try {
       /// 2. 현재 사용자 확인
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
+      final authProvider = context.read<EmailAuthProvider>();
+      final appUser = authProvider.user;
+      if (appUser == null) {
         throw Exception('로그인이 필요합니다');
       }
 
-      final buyerId = currentUser.uid;
+      final buyerId = appUser.uid;
       final sellerId = widget.product.sellerId;
 
       /// 3. 본인 상품 체크
@@ -576,20 +582,28 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         throw Exception('본인의 상품에는 채팅할 수 없습니다');
       }
 
-      // 4. 기존 채팅방 확인
-      String? chatRoomId = await _findExistingChatRoom(
-        buyerId,
-        sellerId,
-        widget.product.id,
-      );
-
-      // 5. 채팅방 없으면 생성
-      if (chatRoomId == null) {
-        chatRoomId = await _createChatRoom(buyerId, sellerId);
+      String chatRoomId;
+      if (AppConfig.useFirebase) {
+        final existingRoomId = await _findExistingChatRoom(
+          buyerId,
+          sellerId,
+          widget.product.id,
+        );
+        chatRoomId = existingRoomId ?? await _createChatRoom(buyerId, sellerId);
+        await _sendMessage(chatRoomId, buyerId, message);
+      } else {
+        final repo = LocalAppRepository.instance;
+        chatRoomId = await repo.ensureChatRoom(
+          listingId: widget.product.id,
+          buyerUid: buyerId,
+        );
+        await repo.sendMessage(
+          roomId: chatRoomId,
+          senderUid: buyerId,
+          text: message,
+        );
+        await repo.markMessagesAsRead(roomId: chatRoomId, userId: buyerId);
       }
-
-      // 6. 메시지 전송
-      await _sendMessage(chatRoomId, buyerId, message);
 
       // 7. 채팅 페이지로 이동
       if (!mounted) return;
@@ -598,7 +612,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         context,
         MaterialPageRoute(
           builder: (context) => ChatPage(
-            chatRoomId: chatRoomId!,
+            chatRoomId: chatRoomId,
             opponentName: widget.product.sellerNickname,
           ),
         ),
@@ -732,6 +746,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
 
   void _toggleLike() {
+    final authProvider = context.read<EmailAuthProvider>();
+    final uid = authProvider.user?.uid;
+    if (!AppConfig.useFirebase && uid != null) {
+      LocalAppRepository.instance.toggleFavorite(widget.product.id, uid);
+    }
     setState(() {
       _isLiked = !_isLiked;
     });
@@ -739,9 +758,15 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   }
 
   bool get _canDeleteProduct {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return false;
-    return currentUser.uid == widget.product.sellerId;
+    if (AppConfig.useFirebase) {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return false;
+      return currentUser.uid == widget.product.sellerId;
+    }
+    final authProvider = context.read<EmailAuthProvider>();
+    final uid = authProvider.user?.uid;
+    if (uid == null) return false;
+    return uid == widget.product.sellerId;
   }
 
   Future<void> _confirmDeleteProduct() async {
@@ -786,10 +811,14 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('products')
-          .doc(widget.product.id)
-          .delete();
+      if (AppConfig.useFirebase) {
+        await FirebaseFirestore.instance
+            .collection('products')
+            .doc(widget.product.id)
+            .delete();
+      } else {
+        await LocalAppRepository.instance.deleteListing(widget.product.id);
+      }
 
       if (!mounted) return;
       _showSnackBar('상품을 삭제했습니다');
