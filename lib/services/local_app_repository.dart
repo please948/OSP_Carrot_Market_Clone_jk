@@ -348,6 +348,7 @@ class LocalAppRepository {
     required AppUserProfile seller,
     required String description,
     GroupBuyInfo? groupBuy,
+    String? meetLocationDetail,
   }) async {
     final id = 'listing_${DateTime.now().microsecondsSinceEpoch}';
     final listing = Listing(
@@ -372,6 +373,7 @@ class LocalAppRepository {
       updatedAt: DateTime.now(),
       likedUserIds: {},
       groupBuy: groupBuy,
+      meetLocationDetail: meetLocationDetail,
     );
 
     _listings[id] = listing;
@@ -854,6 +856,7 @@ class LocalAppRepository {
           viewerUid == null ? false : listing.likedUserIds.contains(viewerUid),
       x: primaryLocation.latitude,
       y: primaryLocation.longitude,
+      meetLocationDetail: listing.meetLocationDetail,
     );
   }
 

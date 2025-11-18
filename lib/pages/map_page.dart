@@ -322,6 +322,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
                   : DateTime.now(),
               meetPlaceText: _safeString(groupBuyMap['meetPlaceText']) ?? '',
             ) : null,
+            meetLocationDetail: _safeString(data['meetLocationDetail']),
           );
           
           final points = listing.meetLocations.isEmpty 
@@ -451,6 +452,7 @@ class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
       isLiked: isLiked,
       x: listing.location.latitude,
       y: listing.location.longitude,
+      meetLocationDetail: listing.meetLocationDetail,
     );
   }
 
