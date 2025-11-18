@@ -14,12 +14,16 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
 
 import 'package:flutter_sandbox/models/firestore_schema.dart';
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/location_picker_page.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 import 'package:flutter_sandbox/services/local_app_repository.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
 
 class ProductEditPage extends StatefulWidget {
   final Product product;
@@ -190,8 +194,31 @@ class _ProductEditPageState extends State<ProductEditPage> {
     try {
       List<String> images = [];
       
-      // 선택한 이미지 파일들을 앱 내부 디렉토리에 복사
-      if (_selectedImages.isNotEmpty) {
+      // Firebase 사용 시 이미지를 Firebase Storage에 업로드
+      if (AppConfig.useFirebase && _selectedImages.isNotEmpty) {
+        final storage = FirebaseStorage.instance;
+        final authUser = FirebaseAuth.instance.currentUser;
+        if (authUser == null) {
+          _showMessage('로그인이 필요합니다.');
+          setState(() => _isSubmitting = false);
+          return;
+        }
+        
+        for (var imageFile in _selectedImages) {
+          try {
+            final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imageFile.path)}';
+            final ref = storage.ref().child('products/${authUser.uid}/$fileName');
+            await ref.putFile(File(imageFile.path));
+            final downloadUrl = await ref.getDownloadURL();
+            images.add(downloadUrl);
+          } catch (e) {
+            _showMessage('이미지 업로드 실패: $e');
+            setState(() => _isSubmitting = false);
+            return;
+          }
+        }
+      } else if (!AppConfig.useFirebase && _selectedImages.isNotEmpty) {
+        // 로컬 모드: 앱 내부 디렉토리에 복사
         final appDir = await getApplicationDocumentsDirectory();
         final imagesDir = Directory(path.join(appDir.path, 'product_images'));
         if (!await imagesDir.exists()) {
@@ -242,20 +269,59 @@ class _ProductEditPageState extends State<ProductEditPage> {
         );
       }
 
-      await LocalAppRepository.instance.updateListing(
-        listingId: widget.product.id,
-        title: _titleController.text.trim(),
-        price: int.tryParse(_priceController.text.trim()) ?? 0,
-        meetLocations: _selectedLocations,
-        images: images.isEmpty ? widget.product.imageUrls : images,
-        category: _category,
-        description: _descriptionController.text.trim(),
-        groupBuy: groupInfo,
-      );
+      // Firebase 사용 시 Firestore 업데이트
+      if (AppConfig.useFirebase) {
+        final firestore = FirebaseFirestore.instance;
+        final primaryLocation = _selectedLocations.first;
+        
+        final updateData = <String, dynamic>{
+          'title': _titleController.text.trim(),
+          'price': int.tryParse(_priceController.text.trim()) ?? 0,
+          'location': GeoPoint(primaryLocation.latitude, primaryLocation.longitude),
+          'meetLocations': _selectedLocations.map((loc) => 
+            GeoPoint(loc.latitude, loc.longitude)).toList(),
+          'images': images.isEmpty ? widget.product.imageUrls : images,
+          'category': _category.index,
+          'description': _descriptionController.text.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
 
-      if (mounted) {
-        _showMessage('상품이 수정되었습니다!', isError: false);
-        Navigator.pop(context, true);
+        if (groupInfo != null) {
+          updateData['groupBuy'] = {
+            'itemSummary': groupInfo.itemSummary,
+            'maxMembers': groupInfo.maxMembers,
+            'currentMembers': groupInfo.currentMembers,
+            'pricePerPerson': groupInfo.pricePerPerson,
+            'orderDeadline': Timestamp.fromDate(groupInfo.orderDeadline),
+            'meetPlaceText': groupInfo.meetPlaceText,
+          };
+        }
+
+        await firestore.collection('products')
+            .doc(widget.product.id)
+            .update(updateData);
+
+        if (mounted) {
+          _showMessage('상품이 수정되었습니다!', isError: false);
+          Navigator.pop(context, true);
+        }
+      } else {
+        // 로컬 모드
+        await LocalAppRepository.instance.updateListing(
+          listingId: widget.product.id,
+          title: _titleController.text.trim(),
+          price: int.tryParse(_priceController.text.trim()) ?? 0,
+          meetLocations: _selectedLocations,
+          images: images.isEmpty ? widget.product.imageUrls : images,
+          category: _category,
+          description: _descriptionController.text.trim(),
+          groupBuy: groupInfo,
+        );
+
+        if (mounted) {
+          _showMessage('상품이 수정되었습니다!', isError: false);
+          Navigator.pop(context, true);
+        }
       }
     } catch (e) {
       _showMessage('수정에 실패했습니다: $e');

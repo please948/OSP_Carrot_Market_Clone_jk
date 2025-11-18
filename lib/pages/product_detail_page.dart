@@ -23,19 +23,18 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/models/firestore_schema.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
 import 'package:flutter_sandbox/pages/map_page.dart';
 import 'package:flutter_sandbox/pages/seller_profile_page.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
 import 'package:flutter_sandbox/pages/product_edit_page.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 import 'package:flutter_sandbox/providers/location_provider.dart';
-import 'package:flutter_sandbox/config/app_config.dart';
 import 'package:flutter_sandbox/services/local_app_repository.dart';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide EmailAuthProvider;
 
 enum _ProductMoreAction {
   edit,

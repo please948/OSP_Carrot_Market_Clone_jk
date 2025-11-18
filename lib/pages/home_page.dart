@@ -22,12 +22,14 @@ import 'package:flutter_sandbox/pages/search_page.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 import 'package:flutter_sandbox/pages/product_create_page.dart';
 import 'package:flutter_sandbox/pages/group_buy_create_page.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
 import 'package:flutter_sandbox/pages/chat_list_page.dart';
 import 'package:flutter_sandbox/pages/email_auth_page.dart';
 import 'package:flutter_sandbox/pages/map_page.dart';
@@ -38,7 +40,6 @@ import 'package:flutter_sandbox/providers/ad_provider.dart';
 import 'package:flutter_sandbox/models/ad.dart';
 import 'package:flutter_sandbox/widgets/ad_card.dart';
 import 'package:flutter_sandbox/models/firestore_schema.dart';
-import 'package:flutter_sandbox/config/app_config.dart';
 import 'package:flutter_sandbox/services/local_app_repository.dart';
 import 'package:flutter_sandbox/providers/location_provider.dart';
 
@@ -1024,15 +1025,81 @@ class _HomePageState extends State<HomePage> {
     return mergedList;
   }
 
-  /// 상품 목록을 생성하는 위젯 (임시 데이터)
-  /// 상품 인시 데이터 넣는 부분
+  /// Firestore 문서를 Product로 변환
+  Product _firestoreDocToProduct(String docId, Map<String, dynamic> data, String? viewerUid) {
+    final location = data['location'] as GeoPoint?;
+    final region = data['region'] as Map<String, dynamic>?;
+    final createdAt = data['createdAt'] as Timestamp?;
+    final updatedAt = data['updatedAt'] as Timestamp?;
+    final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
+    
+    return Product(
+      id: docId,
+      title: data['title'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      price: (data['price'] as int?) ?? 0,
+      imageUrls: List<String>.from(data['images'] ?? []),
+      category: ProductCategory.values[data['category'] as int? ?? 0],
+      status: ProductStatus.values[data['status'] as int? ?? 0],
+      sellerId: data['sellerUid'] as String? ?? '',
+      sellerNickname: data['sellerName'] as String? ?? '',
+      sellerProfileImageUrl: data['sellerPhotoUrl'] as String?,
+      location: region?['name'] as String? ?? '알 수 없는 지역',
+      createdAt: createdAt?.toDate() ?? DateTime.now(),
+      updatedAt: updatedAt?.toDate() ?? DateTime.now(),
+      viewCount: data['viewCount'] as int? ?? 0,
+      likeCount: data['likeCount'] as int? ?? 0,
+      isLiked: viewerUid != null && likedUserIds.contains(viewerUid),
+      x: location?.latitude ?? 0.0,
+      y: location?.longitude ?? 0.0,
+    );
+  }
+
+  /// 상품 목록을 생성하는 위젯
   Widget _buildProductList() {
     final viewerUid = context.read<EmailAuthProvider>().user?.uid;
-    final products = AppConfig.useFirebase
-        ? getMockProducts()
-        : LocalAppRepository.instance
-            .getProducts(viewerUid: viewerUid)
-            .toList();
+    
+    // Firebase 사용 시 StreamBuilder로 실시간 업데이트
+    if (AppConfig.useFirebase) {
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('products')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return Center(child: Text('오류: ${snapshot.error}'));
+          }
+          
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text('등록된 상품이 없습니다.'),
+            );
+          }
+          
+          final products = snapshot.data!.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return _firestoreDocToProduct(doc.id, data, viewerUid);
+          }).toList();
+          
+          return _buildProductGridView(products);
+        },
+      );
+    }
+    
+    // 로컬 모드
+    final products = LocalAppRepository.instance
+        .getProducts(viewerUid: viewerUid)
+        .toList();
+    return _buildProductGridView(products);
+  }
+  
+  /// Product 리스트를 GridView로 표시
+  Widget _buildProductGridView(List<Product> products) {
     var allProducts = products.map((product) {
       return {
         'title': product.title,
