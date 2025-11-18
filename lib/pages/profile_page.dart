@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:flutter_sandbox/providers/kakao_login_provider.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart' as app_auth;
@@ -23,8 +24,9 @@ import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
 import 'package:flutter_sandbox/services/admin_service.dart';
 import 'package:flutter_sandbox/pages/admin_page.dart';
-import 'package:flutter_sandbox/data/mock_products.dart';
 import 'package:flutter_sandbox/models/firestore_schema.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
 
 /// 사용자 프로필 페이지를 나타내는 위젯
 class ProfilePage extends StatefulWidget {
@@ -39,12 +41,6 @@ class _ProfilePageState extends State<ProfilePage>
   /// 상품 상태 탭 컨트롤러
   late TabController _tabController;
 
-  /// 내가 등록한 상품 목록 (임시 데이터)
-  List<Product> _myProducts = [];
-
-  /// 내가 찜한 상품 목록 (임시 데이터)
-  List<Product> _likedProducts = [];
-
   /// 관리자 페이지 접근을 위한 설정 아이콘 탭 횟수
   int _settingsTapCount = 0;
 
@@ -55,8 +51,6 @@ class _ProfilePageState extends State<ProfilePage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _loadMyProducts();
-    _loadLikedProducts();
   }
 
   @override
@@ -65,46 +59,53 @@ class _ProfilePageState extends State<ProfilePage>
     super.dispose();
   }
 
-  /// 내가 등록한 상품 목록을 로드하는 메서드 (임시 데이터)
-  void _loadMyProducts() {
-    // 실제로는 sellerId로 필터링하여 가져옵니다
-    final products = getMockProducts();
-    _myProducts = [
-      products[0],
-      products[1].copyWith(status: ProductStatus.reserved),
-      products[2].copyWith(status: ProductStatus.sold),
-    ];
+  /// Firestore 문서를 Product로 변환
+  Product _firestoreDocToProduct(String docId, Map<String, dynamic> data, String? viewerUid) {
+    final location = data['location'] as GeoPoint?;
+    final region = data['region'] as Map<String, dynamic>?;
+    final createdAt = data['createdAt'] as Timestamp?;
+    final updatedAt = data['updatedAt'] as Timestamp?;
+    final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
+    
+    return Product(
+      id: docId,
+      title: data['title'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      price: (data['price'] as int?) ?? 0,
+      imageUrls: List<String>.from(data['images'] ?? []),
+      category: ProductCategory.values[data['category'] as int? ?? 0],
+      status: ProductStatus.values[data['status'] as int? ?? 0],
+      sellerId: data['sellerUid'] as String? ?? '',
+      sellerNickname: data['sellerName'] as String? ?? '',
+      sellerProfileImageUrl: data['sellerPhotoUrl'] as String?,
+      location: region?['name'] as String? ?? '알 수 없는 지역',
+      createdAt: createdAt?.toDate() ?? DateTime.now(),
+      updatedAt: updatedAt?.toDate() ?? DateTime.now(),
+      viewCount: data['viewCount'] as int? ?? 0,
+      likeCount: data['likeCount'] as int? ?? 0,
+      isLiked: viewerUid != null && likedUserIds.contains(viewerUid),
+      x: location?.latitude ?? 0.0,
+      y: location?.longitude ?? 0.0,
+    );
   }
 
-  /// 내가 찜한 상품 목록을 로드하는 메서드 (임시 데이터)
-  void _loadLikedProducts() {
-    // 실제로는 사용자 ID로 찜한 상품을 가져옵니다
-    final products = getMockProducts();
-    _likedProducts = [
-      products[3],
-      products[4],
-      products[5],
-    ];
-  }
-
-  /// 현재 선택된 탭에 해당하는 상품 목록을 반환하는 메서드
-  List<Product> get _filteredProducts {
-    final selectedIndex = _tabController.index;
-    switch (selectedIndex) {
+  /// 현재 선택된 탭에 해당하는 상품 목록을 필터링
+  List<Product> _filterProducts(List<Product> products, int tabIndex) {
+    switch (tabIndex) {
       case 0: // 판매중
-        return _myProducts
+        return products
             .where((p) => p.status == ProductStatus.onSale)
             .toList();
       case 1: // 예약중
-        return _myProducts
+        return products
             .where((p) => p.status == ProductStatus.reserved)
             .toList();
       case 2: // 판매완료
-        return _myProducts
+        return products
             .where((p) => p.status == ProductStatus.sold)
             .toList();
       case 3: // 찜한 상품
-        return _likedProducts;
+        return products.where((p) => p.isLiked).toList();
       default:
         return [];
     }
@@ -185,12 +186,10 @@ class _ProfilePageState extends State<ProfilePage>
               // 상품 상태 탭
               _buildTabBar(),
 
-              // 상품 목록
-              Expanded(
-                child: _filteredProducts.isEmpty
-                    ? _buildEmptyState()
-                    : _buildProductGrid(),
-              ),
+          // 상품 목록
+          Expanded(
+            child: _buildProductList(),
+          ),
             ],
           );
         },
@@ -308,8 +307,82 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  /// 상품 목록을 빌드하는 위젯
+  Widget _buildProductList() {
+    final currentUser = context.watch<app_auth.EmailAuthProvider>().user;
+    if (currentUser == null) {
+      return const Center(child: Text('로그인이 필요합니다'));
+    }
+
+    if (AppConfig.useFirebase) {
+      return StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('products')
+            .where('sellerUid', isEqualTo: currentUser.uid)
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snapshot.hasError) {
+            return Center(child: Text('오류: ${snapshot.error}'));
+          }
+          
+          final allProducts = snapshot.data?.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return _firestoreDocToProduct(doc.id, data, currentUser.uid);
+          }).toList() ?? [];
+          
+          // 찜한 상품도 가져오기 (찜한 상품 탭용)
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('products')
+                .where('likedUserIds', arrayContains: currentUser.uid)
+                .snapshots(),
+            builder: (context, likedSnapshot) {
+              final likedProducts = likedSnapshot.data?.docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return _firestoreDocToProduct(doc.id, data, currentUser.uid);
+              }).toList() ?? [];
+              
+              // 모든 상품 합치기 (내 상품 + 찜한 상품)
+              final allProductsWithLiked = [
+                ...allProducts,
+                ...likedProducts.where((p) => !allProducts.any((myP) => myP.id == p.id)),
+              ];
+              
+              final filtered = _filterProducts(allProductsWithLiked, _tabController.index);
+              
+              if (filtered.isEmpty) {
+                return _buildEmptyState();
+              }
+              
+              return _buildProductGrid(filtered);
+            },
+          );
+        },
+      );
+    } else {
+      // 로컬 모드
+      final products = LocalAppRepository.instance
+          .getProducts(viewerUid: currentUser.uid)
+          .where((p) => p.sellerId == currentUser.uid || p.isLiked)
+          .toList();
+      
+      final filtered = _filterProducts(products, _tabController.index);
+      
+      if (filtered.isEmpty) {
+        return _buildEmptyState();
+      }
+      
+      return _buildProductGrid(filtered);
+    }
+  }
+
   /// 상품 그리드를 생성하는 위젯
-  Widget _buildProductGrid() {
+  Widget _buildProductGrid(List<Product> products) {
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -318,9 +391,9 @@ class _ProfilePageState extends State<ProfilePage>
         mainAxisSpacing: 16,
         childAspectRatio: 0.75,
       ),
-      itemCount: _filteredProducts.length,
+      itemCount: products.length,
       itemBuilder: (context, index) {
-        final product = _filteredProducts[index];
+        final product = products[index];
         return _buildProductCard(product);
       },
     );

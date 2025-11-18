@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
-import 'package:flutter_sandbox/data/mock_products.dart';
 import 'package:flutter_sandbox/providers/location_provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
+import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -14,45 +17,43 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  // 나중에 products를 디비에서 가져오기
-  late final List<Product> _products;
-
   String _query = ''; // 검색어 상태
 
-  @override
-  void initState() {
-    super.initState();
-    _products = getMockProducts();
+  /// Firestore 문서를 Product로 변환
+  Product _firestoreDocToProduct(String docId, Map<String, dynamic> data, String? viewerUid) {
+    final location = data['location'] as GeoPoint?;
+    final region = data['region'] as Map<String, dynamic>?;
+    final createdAt = data['createdAt'] as Timestamp?;
+    final updatedAt = data['updatedAt'] as Timestamp?;
+    final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
+    
+    return Product(
+      id: docId,
+      title: data['title'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      price: (data['price'] as int?) ?? 0,
+      imageUrls: List<String>.from(data['images'] ?? []),
+      category: ProductCategory.values[data['category'] as int? ?? 0],
+      status: ProductStatus.values[data['status'] as int? ?? 0],
+      sellerId: data['sellerUid'] as String? ?? '',
+      sellerNickname: data['sellerName'] as String? ?? '',
+      sellerProfileImageUrl: data['sellerPhotoUrl'] as String?,
+      location: region?['name'] as String? ?? '알 수 없는 지역',
+      createdAt: createdAt?.toDate() ?? DateTime.now(),
+      updatedAt: updatedAt?.toDate() ?? DateTime.now(),
+      viewCount: data['viewCount'] as int? ?? 0,
+      likeCount: data['likeCount'] as int? ?? 0,
+      isLiked: viewerUid != null && likedUserIds.contains(viewerUid),
+      x: location?.latitude ?? 0.0,
+      y: location?.longitude ?? 0.0,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final locationProvider = context.watch<LocationProvider>();
+    final viewerUid = context.watch<EmailAuthProvider>().user?.uid;
     
-    // 검색어로 필터링된 상품 리스트
-    var filtered = _products
-        .where((p) => p.title.toLowerCase().contains(_query.toLowerCase()))
-        .toList();
-
-    // 위치 필터링 적용 (현재 위치 또는 학교 주변)
-    if (locationProvider.isLocationFilterEnabled &&
-        locationProvider.filterLatitude != null &&
-        locationProvider.filterLongitude != null) {
-      filtered = filtered.where((product) {
-        // Product의 x, y가 유효한 경우에만 거리 계산
-        if (product.x == 0.0 && product.y == 0.0) {
-          return false; // 위치 정보가 없는 상품은 제외
-        }
-        final distance = Geolocator.distanceBetween(
-          locationProvider.filterLatitude!,
-          locationProvider.filterLongitude!,
-          product.x,
-          product.y,
-        );
-        return distance <= locationProvider.searchRadius;
-      }).toList();
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: TextField(
@@ -71,46 +72,181 @@ class _SearchPageState extends State<SearchPage> {
       body: Column(
         children: [
           // 필터링 정보 및 검색 결과 개수 표시
-          _buildFilterInfo(locationProvider, filtered.length),
+          Builder(
+            builder: (context) {
+              // Firebase 사용 시 StreamBuilder로 실시간 업데이트
+              if (AppConfig.useFirebase) {
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('products')
+                      .orderBy('createdAt', descending: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const SizedBox.shrink();
+                    }
+                    
+                    if (snapshot.hasError) {
+                      return const SizedBox.shrink();
+                    }
+                    
+                    final allProducts = snapshot.data?.docs.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      return _firestoreDocToProduct(doc.id, data, viewerUid);
+                    }).toList() ?? [];
+                    
+                    final filtered = _filterProducts(allProducts, _query, locationProvider);
+                    return _buildFilterInfo(locationProvider, filtered.length);
+                  },
+                );
+              } else {
+                // 로컬 모드
+                final products = LocalAppRepository.instance
+                    .getProducts(viewerUid: viewerUid)
+                    .toList();
+                final filtered = _filterProducts(products, _query, locationProvider);
+                return _buildFilterInfo(locationProvider, filtered.length);
+              }
+            },
+          ),
           // 검색 결과 리스트
           Expanded(
-            child: filtered.isEmpty
-                ? _buildEmptyState(_query, locationProvider)
-                : ListView.builder(
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final product = filtered[index];
-                      return ListTile(
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _ProductThumbnail(imageUrls: product.imageUrls),
-                        ),
-                        title: Text(product.title),
-                        subtitle: Text(
-                          '${product.formattedPrice} · ${product.location}',
-                        ),
-                        trailing: Text(
-                          product.statusText,
-                          style: TextStyle(
-                            color: product.status == ProductStatus.sold
-                                ? Colors.grey
-                                : Colors.green,
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ProductDetailPage(product: product),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
+            child: AppConfig.useFirebase
+                ? _buildFirebaseSearchResults(locationProvider, viewerUid)
+                : _buildLocalSearchResults(locationProvider, viewerUid),
           ),
         ],
       ),
+    );
+  }
+
+  /// Firebase 검색 결과 빌드
+  Widget _buildFirebaseSearchResults(LocationProvider locationProvider, String? viewerUid) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('products')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return Center(child: Text('오류: ${snapshot.error}'));
+        }
+        
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return _buildEmptyState(_query, locationProvider);
+        }
+        
+        final allProducts = snapshot.data!.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return _firestoreDocToProduct(doc.id, data, viewerUid);
+        }).toList();
+        
+        final filtered = _filterProducts(allProducts, _query, locationProvider);
+        
+        if (filtered.isEmpty) {
+          return _buildEmptyState(_query, locationProvider);
+        }
+        
+        return ListView.builder(
+          itemCount: filtered.length,
+          itemBuilder: (context, index) {
+            final product = filtered[index];
+            return _buildProductTile(product);
+          },
+        );
+      },
+    );
+  }
+
+  /// 로컬 검색 결과 빌드
+  Widget _buildLocalSearchResults(LocationProvider locationProvider, String? viewerUid) {
+    final products = LocalAppRepository.instance
+        .getProducts(viewerUid: viewerUid)
+        .toList();
+    final filtered = _filterProducts(products, _query, locationProvider);
+    
+    if (filtered.isEmpty) {
+      return _buildEmptyState(_query, locationProvider);
+    }
+    
+    return ListView.builder(
+      itemCount: filtered.length,
+      itemBuilder: (context, index) {
+        final product = filtered[index];
+        return _buildProductTile(product);
+      },
+    );
+  }
+
+  /// 상품 필터링
+  List<Product> _filterProducts(
+    List<Product> products,
+    String query,
+    LocationProvider locationProvider,
+  ) {
+    var filtered = products;
+    
+    // 검색어로 필터링
+    if (query.isNotEmpty) {
+      filtered = filtered
+          .where((p) => 
+              p.title.toLowerCase().contains(query.toLowerCase()) ||
+              p.description.toLowerCase().contains(query.toLowerCase()))
+          .toList();
+    }
+
+    // 위치 필터링 적용
+    if (locationProvider.isLocationFilterEnabled &&
+        locationProvider.filterLatitude != null &&
+        locationProvider.filterLongitude != null) {
+      filtered = filtered.where((product) {
+        if (product.x == 0.0 && product.y == 0.0) {
+          return false;
+        }
+        final distance = Geolocator.distanceBetween(
+          locationProvider.filterLatitude!,
+          locationProvider.filterLongitude!,
+          product.x,
+          product.y,
+        );
+        return distance <= locationProvider.searchRadius;
+      }).toList();
+    }
+
+    return filtered;
+  }
+
+  /// 상품 타일 빌드
+  Widget _buildProductTile(Product product) {
+    return ListTile(
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: _ProductThumbnail(imageUrls: product.imageUrls),
+      ),
+      title: Text(product.title),
+      subtitle: Text(
+        '${product.formattedPrice} · ${product.location}',
+      ),
+      trailing: Text(
+        product.statusText,
+        style: TextStyle(
+          color: product.status == ProductStatus.sold
+              ? Colors.grey
+              : Colors.green,
+        ),
+      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProductDetailPage(product: product),
+          ),
+        );
+      },
     );
   }
 

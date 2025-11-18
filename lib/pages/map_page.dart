@@ -7,10 +7,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_sandbox/models/firestore_schema.dart';
+import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/product_detail_page.dart';
 import 'package:flutter_sandbox/services/local_app_repository.dart';
 import 'package:flutter_sandbox/providers/location_provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
 
 class MapScreen extends StatefulWidget {
   final bool moveToCurrentLocationOnInit;
@@ -156,7 +159,6 @@ class _MapScreenState extends State<MapScreen> {
 
 
   Future<void> _refreshListings(LatLng center, LocationProvider locationProvider) async {
-    final listings = _repository.getAllListings();
     final pins = <_ListingPin>[];
     
     // LocationProvider의 검색 반경 사용 (필터가 활성화된 경우)
@@ -164,28 +166,121 @@ class _MapScreenState extends State<MapScreen> {
         ? locationProvider.searchRadius
         : _searchRadiusMeters;
     
-    for (final listing in listings) {
-      final points =
-          listing.meetLocations.isEmpty ? [listing.location] : listing.meetLocations;
-      for (var i = 0; i < points.length; i++) {
-        final point = points[i];
-        final distance = Geolocator.distanceBetween(
-          center.latitude,
-          center.longitude,
-          point.latitude,
-          point.longitude,
-        );
-        if (distance <= searchRadius) {
-          pins.add(
-            _ListingPin(
-              listing: listing,
-              point: point,
-              markerId: '${listing.id}_$i',
+    if (AppConfig.useFirebase) {
+      // Firebase 모드: Firestore에서 상품 가져오기
+      try {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('products')
+            .get();
+        
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          final location = data['location'] as GeoPoint?;
+          final meetLocations = data['meetLocations'] as List?;
+          
+          if (location == null) continue;
+          
+          // Listing 객체로 변환
+          final listing = Listing(
+            id: doc.id,
+            type: data['type'] == 'market' ? ListingType.market : ListingType.groupBuy,
+            title: data['title'] as String? ?? '',
+            price: (data['price'] as int?) ?? 0,
+            location: AppGeoPoint(
+              latitude: location.latitude,
+              longitude: location.longitude,
             ),
+            meetLocations: meetLocations?.map((loc) {
+              final geoPoint = loc as GeoPoint;
+              return AppGeoPoint(
+                latitude: geoPoint.latitude,
+                longitude: geoPoint.longitude,
+              );
+            }).toList() ?? [],
+            images: List<String>.from(data['images'] ?? []),
+            category: ProductCategory.values[data['category'] as int? ?? 0],
+            status: ListingStatus.values[data['status'] as int? ?? 0],
+            region: Region(
+              code: (data['region'] as Map?)?['code'] as String? ?? '',
+              name: (data['region'] as Map?)?['name'] as String? ?? '',
+              level: ((data['region'] as Map?)?['level'] as int?)?.toString() ?? 
+                     (data['region'] as Map?)?['level'] as String? ?? '0',
+              parent: (data['region'] as Map?)?['parent'] as String?,
+            ),
+            universityId: data['universityId'] as String? ?? '',
+            sellerUid: data['sellerUid'] as String? ?? '',
+            sellerName: data['sellerName'] as String? ?? '',
+            sellerPhotoUrl: data['sellerPhotoUrl'] as String?,
+            likeCount: data['likeCount'] as int? ?? 0,
+            viewCount: data['viewCount'] as int? ?? 0,
+            description: data['description'] as String? ?? '',
+            createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+            likedUserIds: Set<String>.from(data['likedUserIds'] ?? []),
+            groupBuy: data['groupBuy'] != null ? GroupBuyInfo(
+              itemSummary: (data['groupBuy'] as Map)['itemSummary'] as String? ?? '',
+              maxMembers: (data['groupBuy'] as Map)['maxMembers'] as int? ?? 0,
+              currentMembers: (data['groupBuy'] as Map)['currentMembers'] as int? ?? 1,
+              pricePerPerson: (data['groupBuy'] as Map)['pricePerPerson'] as int? ?? 0,
+              orderDeadline: ((data['groupBuy'] as Map)['orderDeadline'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              meetPlaceText: (data['groupBuy'] as Map)['meetPlaceText'] as String? ?? '',
+            ) : null,
           );
+          
+          final points = listing.meetLocations.isEmpty 
+              ? [listing.location] 
+              : listing.meetLocations;
+          
+          for (var i = 0; i < points.length; i++) {
+            final point = points[i];
+            final distance = Geolocator.distanceBetween(
+              center.latitude,
+              center.longitude,
+              point.latitude,
+              point.longitude,
+            );
+            if (distance <= searchRadius) {
+              pins.add(
+                _ListingPin(
+                  listing: listing,
+                  point: point,
+                  markerId: '${listing.id}_$i',
+                ),
+              );
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('지도 상품 로드 실패: $e');
+      }
+    } else {
+      // 로컬 모드
+      final listings = _repository.getAllListings();
+      
+      for (final listing in listings) {
+        final points =
+            listing.meetLocations.isEmpty ? [listing.location] : listing.meetLocations;
+        for (var i = 0; i < points.length; i++) {
+          final point = points[i];
+          final distance = Geolocator.distanceBetween(
+            center.latitude,
+            center.longitude,
+            point.latitude,
+            point.longitude,
+          );
+          if (distance <= searchRadius) {
+            pins.add(
+              _ListingPin(
+                listing: listing,
+                point: point,
+                markerId: '${listing.id}_$i',
+              ),
+            );
+          }
         }
       }
     }
+    
     setState(() {
       _pins
         ..clear()
