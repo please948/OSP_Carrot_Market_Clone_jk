@@ -6,10 +6,13 @@
 /// 주요 기능:
 /// - 상품 이미지 표시 (여러 장일 경우 슬라이더)
 /// - 상품 상세 정보 표시
-/// - 판매자 정보 표시
-/// - 채팅하기 버튼
+/// - 판매자 정보 표시 및 판매자 프로필 페이지 이동
+/// - 채팅하기 버튼 (채팅방 생성 또는 기존 채팅방으로 이동)
 /// - 찜하기 기능
-/// - 위치 정보
+/// - 위치 정보 및 거리 표시
+/// - 지도에서 위치 보기
+/// - 상품 공유 기능
+/// - 상품 삭제 기능 (판매자만 가능)
 ///
 /// @author Flutter Sandbox
 /// @version 1.0.0
@@ -19,9 +22,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/pages/chat_page.dart';
 import 'package:flutter_sandbox/pages/map_page.dart';
+import 'package:flutter_sandbox/pages/seller_profile_page.dart';
 import 'package:flutter_sandbox/providers/email_auth_provider.dart';
 import 'package:flutter_sandbox/providers/location_provider.dart';
 import 'package:flutter_sandbox/config/app_config.dart';
@@ -107,12 +112,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.share, color: Colors.black),
-            onPressed: () {
-              // 공유 기능 (향후 구현)
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('공유 기능은 준비 중입니다')),
-              );
-            },
+            onPressed: () => _shareProduct(),
           ),
           PopupMenuButton<_ProductMoreAction>(
             icon: const Icon(Icons.more_vert, color: Colors.black),
@@ -471,9 +471,15 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         // 판매자 프로필 보기 버튼
         OutlinedButton(
           onPressed: () {
-            // 판매자 프로필 페이지 (향후 구현)
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('판매자 프로필은 준비 중입니다')),
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SellerProfilePage(
+                  sellerId: widget.product.sellerId,
+                  sellerNickname: widget.product.sellerNickname,
+                  sellerProfileImageUrl: widget.product.sellerProfileImageUrl,
+                ),
+              ),
             );
           },
           style: OutlinedButton.styleFrom(
@@ -784,6 +790,25 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     );
   }
 
+
+  /// 상품 공유 기능
+  Future<void> _shareProduct() async {
+    try {
+      final shareText = '${widget.product.title}\n'
+          '${widget.product.formattedPrice}\n'
+          '${widget.product.description}\n'
+          '위치: ${widget.product.location}';
+      
+      await Share.share(
+        shareText,
+        subject: widget.product.title,
+      );
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('공유 중 오류가 발생했습니다');
+      }
+    }
+  }
 
   void _toggleLike() {
     final authProvider = context.read<EmailAuthProvider>();

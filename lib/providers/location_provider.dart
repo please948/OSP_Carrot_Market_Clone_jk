@@ -7,6 +7,23 @@
 /// - 현재 위치 선택 상태 관리
 /// - 현재 위치 좌표 저장
 /// - 위치 필터링 활성화/비활성화
+/// - 검색 반경 설정 (500m, 1km, 2km, 5km)
+/// - 위치 설정 상태 영구 저장 (SharedPreferences)
+///
+/// 사용 예시:
+/// ```dart
+/// // 현재 위치 설정
+/// locationProvider.setCurrentLocation(36.1461, 128.3939);
+///
+/// // 학교 위치로 설정
+/// locationProvider.setSchoolLocation();
+///
+/// // 필터 해제
+/// locationProvider.clearLocationFilter();
+///
+/// // 검색 반경 변경
+/// locationProvider.setSearchRadius(2000); // 2km
+/// ```
 ///
 /// @author Flutter Sandbox
 /// @version 1.0.0

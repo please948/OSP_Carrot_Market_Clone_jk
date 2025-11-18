@@ -209,7 +209,7 @@ class _SearchPageState extends State<SearchPage> {
 }
 
 class _ProductThumbnail extends StatelessWidget {
-  const _ProductThumbnail({super.key, required this.imageUrls});
+  const _ProductThumbnail({required this.imageUrls});
 
   final List<String> imageUrls;
 
@@ -262,7 +262,7 @@ class _ProductThumbnail extends StatelessWidget {
 }
 
 class _FallbackThumbnail extends StatelessWidget {
-  const _FallbackThumbnail({super.key});
+  const _FallbackThumbnail();
 
   @override
   Widget build(BuildContext context) {

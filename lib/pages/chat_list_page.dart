@@ -31,6 +31,13 @@ enum ChatFilter {
   unread,   // 안 읽은 채팅방
 }
 
+/// 채팅방 정렬 방식
+enum ChatSortType {
+  latest,   // 최신순
+  unread,   // 안 읽은 순
+  name,     // 이름순
+}
+
 /// 채팅방 모델
 class ChatRoom {
   final String id;
@@ -115,6 +122,9 @@ class ChatListPage extends StatefulWidget {
 
 class _ChatListPageState extends State<ChatListPage> {
   ChatFilter _selectedFilter = ChatFilter.all;
+  ChatSortType _sortType = ChatSortType.latest;
+  bool _showSavedMessages = false;
+  bool _notificationsEnabled = true;
 
   @override
   Widget build(BuildContext context) {
@@ -145,21 +155,35 @@ class _ChatListPageState extends State<ChatListPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.tune, color: Colors.black),
+            onPressed: () => _showSortDialog(),
+          ),
+          IconButton(
+            icon: Icon(
+              _showSavedMessages ? Icons.bookmark : Icons.bookmark_border,
+              color: Colors.black,
+            ),
             onPressed: () {
-              // 정렬 기능 (향후 구현)
+              setState(() {
+                _showSavedMessages = !_showSavedMessages;
+              });
+              if (_showSavedMessages) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('저장된 메시지 기능은 준비 중입니다'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
             },
           ),
           IconButton(
-            icon: const Icon(Icons.bookmark_border, color: Colors.black),
-            onPressed: () {
-              // 저장된 메시지 (향후 구현)
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Colors.black),
-            onPressed: () {
-              // 알림 설정 (향후 구현)
-            },
+            icon: Icon(
+              _notificationsEnabled
+                  ? Icons.notifications
+                  : Icons.notifications_off,
+              color: Colors.black,
+            ),
+            onPressed: () => _showNotificationSettings(),
           ),
         ],
       ),
@@ -261,7 +285,8 @@ class _ChatListPageState extends State<ChatListPage> {
                   .toList() ??
               [];
 
-          final filteredChatRooms = _applyFilter(chatRooms, currentUserId);
+          var filteredChatRooms = _applyFilter(chatRooms, currentUserId);
+          filteredChatRooms = _applySort(filteredChatRooms, currentUserId);
 
           if (filteredChatRooms.isEmpty) {
             return _buildEmptyState();
@@ -286,7 +311,8 @@ class _ChatListPageState extends State<ChatListPage> {
           final converted = rooms
               .map((room) => _convertLocalRoom(room))
               .toList(growable: false);
-          final filtered = _applyFilter(converted, currentUserId);
+          var filtered = _applyFilter(converted, currentUserId);
+          filtered = _applySort(filtered, currentUserId);
           if (filtered.isEmpty) {
             return _buildEmptyState();
           }
@@ -337,6 +363,119 @@ class _ChatListPageState extends State<ChatListPage> {
         room.getMyUnreadCount(currentUserId) > 0
         ).toList();
     }
+  }
+
+  /// 정렬 적용
+  List<ChatRoom> _applySort(List<ChatRoom> chatRooms, String currentUserId) {
+    final sorted = List<ChatRoom>.from(chatRooms);
+    
+    switch (_sortType) {
+      case ChatSortType.latest:
+        sorted.sort((a, b) {
+          final timeA = a.lastMessageTime ?? DateTime(1970);
+          final timeB = b.lastMessageTime ?? DateTime(1970);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case ChatSortType.unread:
+        sorted.sort((a, b) {
+          final unreadA = a.getMyUnreadCount(currentUserId);
+          final unreadB = b.getMyUnreadCount(currentUserId);
+          if (unreadA != unreadB) {
+            return unreadB.compareTo(unreadA);
+          }
+          final timeA = a.lastMessageTime ?? DateTime(1970);
+          final timeB = b.lastMessageTime ?? DateTime(1970);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case ChatSortType.name:
+        sorted.sort((a, b) {
+          final nameA = a.getOpponentName(currentUserId);
+          final nameB = b.getOpponentName(currentUserId);
+          return nameA.compareTo(nameB);
+        });
+        break;
+    }
+    
+    return sorted;
+  }
+
+  /// 정렬 다이얼로그 표시
+  void _showSortDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('정렬 방식'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: ChatSortType.values.map((sortType) {
+              return RadioListTile<ChatSortType>(
+                title: Text(_getSortTypeName(sortType)),
+                value: sortType,
+                groupValue: _sortType,
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _sortType = value;
+                    });
+                    Navigator.pop(context);
+                  }
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 정렬 타입 이름 반환
+  String _getSortTypeName(ChatSortType sortType) {
+    switch (sortType) {
+      case ChatSortType.latest:
+        return '최신순';
+      case ChatSortType.unread:
+        return '안 읽은 순';
+      case ChatSortType.name:
+        return '이름순';
+    }
+  }
+
+  /// 알림 설정 다이얼로그 표시
+  void _showNotificationSettings() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('알림 설정'),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return SwitchListTile(
+                title: const Text('채팅 알림'),
+                subtitle: const Text('새 메시지가 도착하면 알림을 받습니다'),
+                value: _notificationsEnabled,
+                onChanged: (value) {
+                  setState(() {
+                    _notificationsEnabled = value;
+                  });
+                  this.setState(() {
+                    _notificationsEnabled = value;
+                  });
+                },
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('확인'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   ChatRoom _convertLocalRoom(AppChatRoom room) {

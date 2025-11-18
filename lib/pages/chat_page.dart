@@ -364,7 +364,7 @@ class _ChatPageState extends State<ChatPage> {
           IconButton(
             icon: const Icon(Icons.more_vert, color: Colors.black),
             onPressed: () {
-              /// 더보기 메뉴 (향후 구현)
+              // 더보기 메뉴 (필요 시 구현)
             },
           ),
         ],
