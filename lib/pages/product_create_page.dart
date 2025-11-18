@@ -37,6 +37,7 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
   final _groupCurrentMembersController = TextEditingController(text: '1');
   final _groupPricePerPersonController = TextEditingController();
   final _groupMeetTextController = TextEditingController();
+  final _meetLocationDetailController = TextEditingController();
 
   ListingType _type = ListingType.market;
   ProductCategory _category = ProductCategory.digital;
@@ -56,6 +57,7 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
     _groupCurrentMembersController.dispose();
     _groupPricePerPersonController.dispose();
     _groupMeetTextController.dispose();
+    _meetLocationDetailController.dispose();
     super.dispose();
   }
 
@@ -254,6 +256,9 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
           'likeCount': 0,
           'viewCount': 0,
           'description': _descriptionController.text.trim(),
+          'meetLocationDetail': _meetLocationDetailController.text.trim().isNotEmpty
+              ? _meetLocationDetailController.text.trim()
+              : null,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'likedUserIds': [],
@@ -293,6 +298,9 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
           seller: user,
           description: _descriptionController.text.trim(),
           groupBuy: groupInfo,
+          meetLocationDetail: _meetLocationDetailController.text.trim().isNotEmpty
+              ? _meetLocationDetailController.text.trim()
+              : null,
         );
 
         if (mounted) {
@@ -445,6 +453,17 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
               ),
               const SizedBox(height: 16),
               _buildLocationSelector(),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _meetLocationDetailController,
+                decoration: const InputDecoration(
+                  labelText: '상세 거래 위치',
+                  hintText: '예: 금오공대 정문 앞 편의점, 인동동 마트 앞',
+                  border: OutlineInputBorder(),
+                  helperText: '지도에서 선택한 위치 외에 상세한 거래 장소를 입력해주세요',
+                ),
+                maxLines: 2,
+              ),
               const SizedBox(height: 16),
               if (_type == ListingType.groupBuy) _buildGroupBuyFields(),
               const SizedBox(height: 24),

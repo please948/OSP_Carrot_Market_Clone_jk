@@ -84,6 +84,7 @@ class _SellerProfilePageState extends State<SellerProfilePage>
       isLiked: viewerUid != null && likedUserIds.contains(viewerUid),
       x: location?.latitude ?? 0.0,
       y: location?.longitude ?? 0.0,
+      meetLocationDetail: data['meetLocationDetail'] as String?,
     );
   }
 

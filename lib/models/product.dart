@@ -100,6 +100,9 @@ class Product {
 
   final double y; //경도
 
+  /// 상세 거래 위치 (예: "금오공대 정문 앞 편의점", "인동동 마트 앞")
+  final String? meetLocationDetail;
+
   /// Product 생성자
   const Product({
     required this.id,
@@ -120,6 +123,7 @@ class Product {
     this.isLiked = false,
     this.x = 0.0,
     this.y = 0.0,
+    this.meetLocationDetail,
   });
 
   /// JSON에서 Product 객체를 생성하는 팩토리 생성자
@@ -141,6 +145,7 @@ class Product {
       viewCount: json['viewCount'] as int? ?? 0,
       likeCount: json['likeCount'] as int? ?? 0,
       isLiked: json['isLiked'] as bool? ?? false,
+      meetLocationDetail: json['meetLocationDetail'] as String?,
     );
   }
 
@@ -163,6 +168,7 @@ class Product {
       'viewCount': viewCount,
       'likeCount': likeCount,
       'isLiked': isLiked,
+      'meetLocationDetail': meetLocationDetail,
     };
   }
 
@@ -230,6 +236,7 @@ class Product {
     int? viewCount,
     int? likeCount,
     bool? isLiked,
+    String? meetLocationDetail,
   }) {
     return Product(
       id: id ?? this.id,
@@ -249,6 +256,7 @@ class Product {
       viewCount: viewCount ?? this.viewCount,
       likeCount: likeCount ?? this.likeCount,
       isLiked: isLiked ?? this.isLiked,
+      meetLocationDetail: meetLocationDetail ?? this.meetLocationDetail,
     );
   }
 

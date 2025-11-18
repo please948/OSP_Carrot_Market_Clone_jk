@@ -146,6 +146,7 @@ class Listing {
   final DateTime updatedAt;
   final Set<String> likedUserIds;
   final GroupBuyInfo? groupBuy;
+  final String? meetLocationDetail;
 
   const Listing({
     required this.id,
@@ -169,6 +170,7 @@ class Listing {
     required this.updatedAt,
     required this.likedUserIds,
     this.groupBuy,
+    this.meetLocationDetail,
   });
 
   Listing copyWith({
@@ -185,6 +187,7 @@ class Listing {
     String? description,
     AppGeoPoint? location,
     GroupBuyInfo? groupBuy,
+    String? meetLocationDetail,
   }) {
     return Listing(
       id: id,
@@ -208,6 +211,7 @@ class Listing {
       updatedAt: updatedAt ?? this.updatedAt,
       likedUserIds: likedUserIds ?? this.likedUserIds,
       groupBuy: groupBuy ?? this.groupBuy,
+      meetLocationDetail: meetLocationDetail ?? this.meetLocationDetail,
     );
   }
 }

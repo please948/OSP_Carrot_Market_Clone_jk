@@ -409,6 +409,43 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     },
                   ),
                   const SizedBox(height: 8),
+                  // 상세 거래 위치
+                  if (widget.product.meetLocationDetail != null &&
+                      widget.product.meetLocationDetail!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.place, size: 20, color: Colors.teal[700]),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '상세 거래 위치',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.product.meetLocationDetail!,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 8),
                   Text(
                     '${DateTime.now().difference(widget.product.createdAt).inDays}일 전',
                     style: TextStyle(
