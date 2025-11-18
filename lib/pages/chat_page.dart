@@ -82,6 +82,8 @@ class _ChatPageState extends State<ChatPage> {
 
   bool _isSending = false;
   String? _currentUserId;
+  DateTime? _lastMarkAsReadTime; // 마지막 읽음 처리 시간
+  bool _hasMarkedAsRead = false; // 읽음 처리 여부 플래그
 
   @override
   void initState() {
@@ -95,10 +97,16 @@ class _ChatPageState extends State<ChatPage> {
     if (uid != _currentUserId) {
       setState(() {
         _currentUserId = uid;
+        _hasMarkedAsRead = false; // 사용자 변경 시 플래그 리셋
       });
-      if (_currentUserId != null) {
+    }
+    
+    // 채팅 페이지에 처음 들어왔을 때 읽음 처리
+    if (_currentUserId != null && !_hasMarkedAsRead) {
+      _hasMarkedAsRead = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         _markMessagesAsRead();
-      }
+      });
     }
   }
 
@@ -113,32 +121,67 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _markMessagesAsRead() async {
     if (_currentUserId == null) return;
 
+    // 중복 호출 방지: 1초 이내에 다시 호출되면 무시
+    final now = DateTime.now();
+    if (_lastMarkAsReadTime != null &&
+        now.difference(_lastMarkAsReadTime!).inSeconds < 1) {
+      return;
+    }
+    _lastMarkAsReadTime = now;
+
     if (AppConfig.useFirebase) {
       try {
+        debugPrint('📖 읽음 처리 시작: chatRoomId=${widget.chatRoomId}, userId=$_currentUserId');
+
+        // 읽지 않은 메시지 찾기 (인덱스 오류 방지를 위해 senderId 조건만 사용)
         final messagesSnapshot = await FirebaseFirestore.instance
             .collection(ChatConstants.chatRoomsCollection)
             .doc(widget.chatRoomId)
             .collection(ChatConstants.messagesCollection)
             .where('senderId', isNotEqualTo: _currentUserId)
-            .where('isRead', isEqualTo: false)
             .get();
+
+        // 클라이언트 측에서 읽지 않은 메시지만 필터링
+        final unreadMessages = messagesSnapshot.docs.where((doc) {
+          final data = doc.data();
+          return (data['isRead'] as bool?) != true;
+        }).toList();
+
+        debugPrint('📖 읽지 않은 메시지 수: ${unreadMessages.length}');
 
         final batch = FirebaseFirestore.instance.batch();
 
-        for (var doc in messagesSnapshot.docs) {
+        // 읽지 않은 메시지를 읽음으로 표시
+        for (var doc in unreadMessages) {
           batch.update(doc.reference, {'isRead': true});
         }
 
-        await batch.commit();
+        if (unreadMessages.isNotEmpty) {
+          await batch.commit();
+          debugPrint('✅ 메시지 읽음 처리 완료: ${unreadMessages.length}개');
+        }
 
-        await FirebaseFirestore.instance
+        // unreadCount를 0으로 업데이트 (중첩 필드 업데이트)
+        final chatRoomRef = FirebaseFirestore.instance
             .collection(ChatConstants.chatRoomsCollection)
-            .doc(widget.chatRoomId)
-            .update({
-          '${ChatConstants.unreadCount}.$_currentUserId': 0,
-        });
-      } catch (e) {
-        debugPrint('메시지 읽음 처리 실패: $e');
+            .doc(widget.chatRoomId);
+        
+        // 현재 unreadCount Map 가져오기
+        final chatRoomDoc = await chatRoomRef.get();
+        if (chatRoomDoc.exists) {
+          final currentUnreadCount = chatRoomDoc.data()?['unreadCount'] as Map<String, dynamic>? ?? {};
+          final updatedUnreadCount = Map<String, dynamic>.from(currentUnreadCount);
+          updatedUnreadCount[_currentUserId!] = 0;
+          
+          await chatRoomRef.update({
+            'unreadCount': updatedUnreadCount,
+          });
+          
+          debugPrint('✅ unreadCount 업데이트 완료: ${_currentUserId} -> 0');
+        }
+      } catch (e, stackTrace) {
+        debugPrint('❌ 메시지 읽음 처리 실패: $e');
+        debugPrint('❌ StackTrace: $stackTrace');
       }
     } else {
       await LocalAppRepository.instance.markMessagesAsRead(
@@ -427,6 +470,19 @@ class _ChatPageState extends State<ChatPage> {
                   .map((doc) => ChatMessage.fromFirestore(doc))
                   .toList() ??
               [];
+          
+          // 읽지 않은 메시지가 있는지 확인하고 읽음 처리
+          final hasUnreadMessages = messages.any((msg) => 
+            msg.senderId != _currentUserId && !msg.isRead
+          );
+          
+          if (hasUnreadMessages && _currentUserId != null) {
+            // 읽지 않은 메시지가 있으면 읽음 처리
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _markMessagesAsRead();
+            });
+          }
+          
           return _buildMessageListView(messages);
         },
       );
@@ -444,6 +500,19 @@ class _ChatPageState extends State<ChatPage> {
           }
           final messages =
               snapshot.data?.map(_convertLocalMessage).toList() ?? [];
+          
+          // 읽지 않은 메시지가 있는지 확인하고 읽음 처리
+          final hasUnreadMessages = messages.any((msg) => 
+            msg.senderId != _currentUserId && !msg.isRead
+          );
+          
+          if (hasUnreadMessages && _currentUserId != null) {
+            // 읽지 않은 메시지가 있으면 읽음 처리
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _markMessagesAsRead();
+            });
+          }
+          
           return _buildMessageListView(messages);
         },
       );
