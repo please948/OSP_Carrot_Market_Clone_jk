@@ -40,6 +40,7 @@ class ChatMessage {
   final String text;
   final DateTime createdAt;
   final bool isRead;
+  final Set<String> readBy; // 읽은 사람들의 ID 집합
 
   ChatMessage({
     required this.id,
@@ -47,17 +48,59 @@ class ChatMessage {
     required this.text,
     required this.createdAt,
     required this.isRead,
+    required this.readBy,
   });
 
   factory ChatMessage.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    // readBy 필드가 있으면 사용, 없으면 빈 집합으로 설정
+    // 참고: isRead 기반으로 추론하지 않는 이유는 isRead가 true일 때
+    // 보낸 사람이 읽은 것으로 오해할 수 있기 때문입니다.
+    // 메시지는 보통 보낸 사람이 아닌 다른 참여자가 읽었을 때 '읽음'으로 표시됩니다.
+    final readBySet = data['readBy'] != null
+        ? Set<String>.from(data['readBy'] as List? ?? [])
+        : <String>{};
+    
+    // 디버깅: 메시지 생성 시 readBy 확인
+    final senderId = data['senderId'] ?? '';
+    debugPrint('📨 메시지 생성: messageId=${doc.id}, senderId=$senderId, readBy=$readBySet');
+    
     return ChatMessage(
       id: doc.id,
-      senderId: data['senderId'] ?? '',
+      senderId: senderId,
       text: data['text'] ?? '',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       isRead: data['isRead'] ?? false,
+      readBy: readBySet,
     );
+  }
+  
+  /// 읽지 않은 사람 수를 계산 (보낸 사람 제외)
+  /// 
+  /// 참고: participants는 현재 채팅방의 참여자 목록이어야 합니다.
+  /// 새 참여자가 추가되면 participants가 업데이트되고, 읽지 않은 사람 수가 자동으로 증가합니다.
+  int getUnreadCount(List<String> participants, String senderId) {
+    // 보낸 사람을 제외한 참여자 중 읽지 않은 사람 수
+    final otherParticipants = participants.where((id) => id != senderId).toList();
+    // readBy에서 보낸 사람을 제외하고 계산 (보낸 사람은 자동으로 읽은 것으로 처리되므로)
+    final readByOthers = readBy.where((id) => id != senderId).toSet();
+    final unreadCount = otherParticipants.where((id) => !readByOthers.contains(id)).length;
+    
+    // 디버깅: 읽지 않은 사람 수 계산 로그
+    debugPrint('📊 읽지 않은 사람 수 계산:');
+    debugPrint('  - participants: $participants (${participants.length}명)');
+    debugPrint('  - senderId: $senderId');
+    debugPrint('  - readBy: $readBy');
+    debugPrint('  - otherParticipants: $otherParticipants');
+    debugPrint('  - readByOthers: $readByOthers');
+    debugPrint('  - unreadCount: $unreadCount');
+    
+    return unreadCount;
+  }
+  
+  /// 1대1 채팅에서 상대방이 읽었는지 확인
+  bool isReadByOpponent(String opponentId) {
+    return readBy.contains(opponentId);
   }
 }
 
@@ -141,19 +184,32 @@ class _ChatPageState extends State<ChatPage> {
             .where('senderId', isNotEqualTo: _currentUserId)
             .get();
 
-        // 클라이언트 측에서 읽지 않은 메시지만 필터링
+        // 클라이언트 측에서 읽지 않은 메시지만 필터링 (readBy에 현재 사용자가 없는 메시지)
         final unreadMessages = messagesSnapshot.docs.where((doc) {
           final data = doc.data();
-          return (data['isRead'] as bool?) != true;
+          final readBy = List<String>.from(data['readBy'] ?? []);
+          return !readBy.contains(_currentUserId);
         }).toList();
 
         debugPrint('📖 읽지 않은 메시지 수: ${unreadMessages.length}');
 
         final batch = FirebaseFirestore.instance.batch();
 
-        // 읽지 않은 메시지를 읽음으로 표시
+        // 읽지 않은 메시지를 읽음으로 표시 (readBy에 현재 사용자 원자적으로 추가)
+        // FieldValue.arrayUnion을 사용하여 race condition 방지
         for (var doc in unreadMessages) {
-          batch.update(doc.reference, {'isRead': true});
+          final data = doc.data();
+          final senderId = data['senderId'] as String? ?? '';
+          final existingReadBy = List<String>.from(data['readBy'] ?? []);
+          debugPrint('📖 메시지 읽음 처리: messageId=${doc.id}, senderId=$senderId, 기존 readBy=$existingReadBy');
+          
+          // FieldValue.arrayUnion을 사용하여 원자적으로 현재 사용자를 readBy에 추가
+          // 중복 추가를 방지하고 동시 읽기 시 race condition을 방지합니다
+          batch.update(doc.reference, {
+            'readBy': FieldValue.arrayUnion([_currentUserId!]),
+            'isRead': true, // readBy에 사용자가 추가되면 읽음으로 표시
+          });
+          debugPrint('📖 readBy에 $_currentUserId 원자적으로 추가됨');
         }
 
         if (unreadMessages.isNotEmpty) {
@@ -161,24 +217,18 @@ class _ChatPageState extends State<ChatPage> {
           debugPrint('✅ 메시지 읽음 처리 완료: ${unreadMessages.length}개');
         }
 
-        // unreadCount를 0으로 업데이트 (중첩 필드 업데이트)
+        // unreadCount를 0으로 업데이트 (중첩 필드 원자적 업데이트)
+        // FieldPath를 사용하여 사용자 ID에 점(.)이 포함되어도 안전하게 처리
         final chatRoomRef = FirebaseFirestore.instance
             .collection(ChatConstants.chatRoomsCollection)
             .doc(widget.chatRoomId);
         
-        // 현재 unreadCount Map 가져오기
-        final chatRoomDoc = await chatRoomRef.get();
-        if (chatRoomDoc.exists) {
-          final currentUnreadCount = chatRoomDoc.data()?['unreadCount'] as Map<String, dynamic>? ?? {};
-          final updatedUnreadCount = Map<String, dynamic>.from(currentUnreadCount);
-          updatedUnreadCount[_currentUserId!] = 0;
-          
-          await chatRoomRef.update({
-            'unreadCount': updatedUnreadCount,
-          });
-          
-          debugPrint('✅ unreadCount 업데이트 완료: ${_currentUserId} -> 0');
-        }
+        // 중첩 필드를 원자적으로 업데이트하여 race condition 방지
+        await chatRoomRef.update({
+          FieldPath(['unreadCount', _currentUserId!]): 0,
+        });
+        
+        debugPrint('✅ unreadCount 업데이트 완료: ${_currentUserId} -> 0');
       } catch (e, stackTrace) {
         debugPrint('❌ 메시지 읽음 처리 실패: $e');
         debugPrint('❌ StackTrace: $stackTrace');
@@ -236,6 +286,7 @@ class _ChatPageState extends State<ChatPage> {
           'text': locationMessage,
           'createdAt': FieldValue.serverTimestamp(),
           'isRead': false,
+          'readBy': [_currentUserId], // 보낸 사람은 자동으로 읽은 것으로 처리
         });
       } else {
         await LocalAppRepository.instance.sendMessage(
@@ -316,6 +367,7 @@ class _ChatPageState extends State<ChatPage> {
           'text': message,
           'createdAt': FieldValue.serverTimestamp(),
           'isRead': false,
+          'readBy': [_currentUserId], // 보낸 사람은 자동으로 읽은 것으로 처리
         });
 
         // 읽지 않은 메시지 수 업데이트 (모든 참여자에게)
@@ -439,9 +491,7 @@ class _ChatPageState extends State<ChatPage> {
               // 그룹 채팅: 상품 제목 표시
               final productTitle = data?['productTitle'] as String? ?? '같이사요 채팅';
               final participants = List<String>.from(data?['participants'] ?? []);
-              final otherParticipants = participants
-                  .where((id) => id != _currentUserId)
-                  .length;
+              final totalParticipants = participants.length;
               
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,9 +507,9 @@ class _ChatPageState extends State<ChatPage> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (otherParticipants > 0)
+                  if (totalParticipants > 0)
                     Text(
-                      '${otherParticipants}명 참여',
+                      '${totalParticipants}명 참여',
                       style: TextStyle(
                         color: Colors.grey[600],
                         fontSize: 12,
@@ -532,7 +582,14 @@ class _ChatPageState extends State<ChatPage> {
           }
 
           final messages = snapshot.data?.docs
-                  .map((doc) => ChatMessage.fromFirestore(doc))
+                  .map((doc) {
+                    final msg = ChatMessage.fromFirestore(doc);
+                    // 디버깅: 메시지 스트림 업데이트 확인
+                    if (snapshot.data!.docs.length > 0) {
+                      debugPrint('🔄 메시지 스트림 업데이트: messageId=${msg.id}, senderId=${msg.senderId}, readBy=${msg.readBy}');
+                    }
+                    return msg;
+                  })
                   .toList() ??
               [];
           
@@ -634,6 +691,8 @@ class _ChatPageState extends State<ChatPage> {
                   return _MessageBubble(
                     message: message,
                     isMine: isMine,
+                    participants: const [],
+                    currentUserId: _currentUserId ?? '',
                   );
                 }
                 
@@ -642,12 +701,15 @@ class _ChatPageState extends State<ChatPage> {
                 final participantNames = data?['participantNames'] != null
                     ? Map<String, String>.from(data!['participantNames'] as Map)
                     : <String, String>{};
+                final participants = List<String>.from(data?['participants'] ?? []);
                 
                 return _MessageBubble(
                   message: message,
                   isMine: isMine,
                   isGroupChat: isGroupChat,
                   participantNames: participantNames,
+                  participants: participants,
+                  currentUserId: _currentUserId ?? '',
                 );
               },
             ),
@@ -665,6 +727,7 @@ class _ChatPageState extends State<ChatPage> {
       text: message.text,
       createdAt: message.sentAt,
       isRead: message.readBy.contains(_currentUserId),
+      readBy: message.readBy,
     );
   }
 
@@ -725,13 +788,84 @@ class _MessageBubble extends StatelessWidget {
   final bool isMine;
   final bool isGroupChat;
   final Map<String, String> participantNames;
+  final List<String> participants;
+  final String currentUserId;
 
   const _MessageBubble({
     required this.message,
     required this.isMine,
     this.isGroupChat = false,
     this.participantNames = const {},
+    required this.participants,
+    required this.currentUserId,
   });
+
+  /// 읽음 표시가 있는지 확인
+  bool _hasReadIndicator() {
+    if (isGroupChat) {
+      // 그룹 채팅: 읽지 않은 사람 수 표시
+      final unreadCount = message.getUnreadCount(participants, message.senderId);
+      return unreadCount > 0;
+    } else {
+      // 1대1 채팅: 상대방이 읽었는지 확인
+      final opponentId = participants.firstWhere(
+        (id) => id != currentUserId,
+        orElse: () => '',
+      );
+      
+      if (opponentId.isEmpty) {
+        return false;
+      }
+      
+      return !message.isReadByOpponent(opponentId);
+    }
+  }
+
+  /// 읽음 표시 위젯 생성
+  Widget _buildReadIndicator() {
+    if (isGroupChat) {
+      // 그룹 채팅: 읽지 않은 사람 수 표시
+      final unreadCount = message.getUnreadCount(participants, message.senderId);
+      if (unreadCount == 0) {
+        // 모두 읽었으면 표시 없음
+        return const SizedBox.shrink();
+      }
+      // 읽지 않은 사람 수 표시
+      return Text(
+        '$unreadCount',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.grey[600],
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    } else {
+      // 1대1 채팅: 상대방이 읽었는지 확인
+      final opponentId = participants.firstWhere(
+        (id) => id != currentUserId,
+        orElse: () => '',
+      );
+      
+      if (opponentId.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      
+      if (message.isReadByOpponent(opponentId)) {
+        // 읽었으면 표시 없음
+        return const SizedBox.shrink();
+      } else {
+        // 읽지 않았으면 "1" 표시
+        return const Text(
+          '1',
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey,
+            fontWeight: FontWeight.w500,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -760,16 +894,37 @@ class _MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             if (isMine) ...[
-              /// 내 메시지: 시간 표시
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Text(
-                  DateFormat('HH:mm').format(message.createdAt),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[600],
-                  ),
-                ),
+              /// 내 메시지: 읽음 표시 및 시간 표시
+              Builder(
+                builder: (context) {
+                  // 읽음 표시가 있는지 확인
+                  final hasReadIndicator = _hasReadIndicator();
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Stack(
+                      alignment: Alignment.bottomRight,
+                      clipBehavior: Clip.none,
+                      children: [
+                        // 시간 표시
+                        Text(
+                          DateFormat('HH:mm').format(message.createdAt),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        // 읽음 표시 (시간의 마지막 글자 위)
+                        if (hasReadIndicator)
+                          Positioned(
+                            bottom: 16,
+                            right: 0,
+                            child: _buildReadIndicator(),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
 
@@ -798,16 +953,37 @@ class _MessageBubble extends StatelessWidget {
             ),
 
             if (!isMine) ...[
-              /// 상대방 메시지 시간 표시
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Text(
-                  DateFormat('HH:mm').format(message.createdAt),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey[600],
-                  ),
-                ),
+              /// 상대방 메시지: 읽음 표시 및 시간 표시
+              Builder(
+                builder: (context) {
+                  // 읽음 표시가 있는지 확인 (그룹 채팅인 경우에만)
+                  final hasReadIndicator = isGroupChat && _hasReadIndicator();
+                  
+                  return Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Stack(
+                      alignment: Alignment.bottomLeft,
+                      clipBehavior: Clip.none,
+                      children: [
+                        // 시간 표시
+                        Text(
+                          DateFormat('HH:mm').format(message.createdAt),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        // 읽음 표시 (시간의 마지막 글자 위)
+                        if (hasReadIndicator)
+                          Positioned(
+                            bottom: 16,
+                            left: 0,
+                            child: _buildReadIndicator(),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
           ],

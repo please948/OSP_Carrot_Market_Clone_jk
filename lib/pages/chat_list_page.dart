@@ -348,6 +348,9 @@ class _ChatListPageState extends State<ChatListPage> {
           onTap: () {
             _navigateToChatPage(chatRoom, currentUserId);
           },
+          onDelete: () {
+            _deleteChatRoom(chatRoom, currentUserId);
+          },
         );
       },
     );
@@ -517,7 +520,7 @@ class _ChatListPageState extends State<ChatListPage> {
       lastMessage: room.lastMessage,
       lastMessageTime: room.lastMessageTime,
       unreadCount: Map<String, int>.from(room.unread),
-      type: room.listingType == ListingType.groupBuy ? 'group' : 'purchase',
+      type: room.listingType == ListingType.groupBuy ? 'groupBuy' : 'purchase',
     );
   }
 
@@ -535,6 +538,114 @@ class _ChatListPageState extends State<ChatListPage> {
       // 채팅 페이지에서 돌아왔을 때 목록 새로고침
       // StreamBuilder가 자동으로 업데이트하므로 별도 처리 불필요
     });
+  }
+
+  /// 채팅방 삭제
+  Future<void> _deleteChatRoom(ChatRoom chatRoom, String currentUserId) async {
+    // 삭제 확인 다이얼로그
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('채팅방 삭제'),
+          content: const Text('이 채팅방을 삭제하시겠습니까?\n삭제된 채팅방은 복구할 수 없습니다.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+              ),
+              child: const Text('삭제'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    try {
+      if (AppConfig.useFirebase) {
+        // Firestore에서 채팅방 삭제 (트랜잭션 사용으로 race condition 방지)
+        // 사용자별로 숨김 처리: participants에서 제거
+        final chatRoomRef = FirebaseFirestore.instance
+            .collection('chatRooms')
+            .doc(chatRoom.id);
+
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          // 트랜잭션 내에서 읽기
+          final chatRoomDoc = await transaction.get(chatRoomRef);
+          
+          if (!chatRoomDoc.exists) {
+            return; // 채팅방이 이미 삭제됨
+          }
+
+          final data = chatRoomDoc.data()!;
+          final participants = List<String>.from(data['participants'] ?? []);
+
+          // 현재 사용자가 participants에 있는지 확인
+          if (!participants.contains(currentUserId)) {
+            return; // 이미 제거됨
+          }
+
+          // 현재 사용자를 participants에서 제거
+          participants.remove(currentUserId);
+
+          // participants가 비어있으면 채팅방 완전 삭제
+          // 참고: 메시지는 Firestore 보안 규칙으로 접근이 제한되므로
+          // 채팅방이 삭제되면 메시지에 접근할 수 없게 됩니다.
+          // 대량의 메시지를 클라이언트에서 삭제하는 것은 성능 문제를 일으킬 수 있으므로
+          // 채팅방만 삭제하고 메시지는 서버 측에서 정리하거나 보안 규칙으로 접근을 제한합니다.
+          if (participants.isEmpty) {
+            // 채팅방만 삭제 (메시지는 보안 규칙으로 접근 제한됨)
+            transaction.delete(chatRoomRef);
+          } else {
+            // 다른 참여자가 있으면 현재 사용자만 제거
+            transaction.update(chatRoomRef, {
+              'participants': participants,
+              'unreadCount.$currentUserId': FieldValue.delete(),
+            });
+          }
+        });
+      } else {
+        // 로컬 모드: 채팅방 삭제 기능은 아직 구현되지 않음
+        debugPrint('로컬 모드에서는 채팅방 삭제 기능을 지원하지 않습니다');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('로컬 모드에서는 채팅방 삭제 기능을 지원하지 않습니다'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('채팅방이 삭제되었습니다'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('채팅방 삭제 실패: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('채팅방 삭제에 실패했습니다: ${e.toString()}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   /// 빈 상태 위젯
@@ -569,11 +680,13 @@ class _ChatListItem extends StatelessWidget {
   final ChatRoom chatRoom;
   final String currentUserId;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
 
   const _ChatListItem({
     required this.chatRoom,
     required this.currentUserId,
     required this.onTap,
+    required this.onDelete,
   });
 
   @override
@@ -584,6 +697,7 @@ class _ChatListItem extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onDelete,
       splashColor: Colors.teal.withValues(alpha: 0.1),
       highlightColor: Colors.teal.withValues(alpha: 0.05),
       child: Container(
@@ -600,18 +714,56 @@ class _ChatListItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 상대방 이름과 시간
+                  // 상대방 이름, 같이사요 배지, 참여자 수, 시간
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          opponentName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                opponentName,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            // 같이사요 배지
+                            if (chatRoom.type == 'groupBuy') ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  '같이사요',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(width: 6),
+                            // 참여자 수 표시
+                            Text(
+                              '${chatRoom.participants.length}명',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[500],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Text(
