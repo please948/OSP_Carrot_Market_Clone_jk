@@ -178,7 +178,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             },
             itemBuilder: (context) {
               final entries = <PopupMenuEntry<_ProductMoreAction>>[];
-              if (_canDeleteProduct) {
+              // 권한 체크는 동기적으로 수행 (sellerId가 비어있으면 false)
+              final canDelete = _canDeleteProductSync;
+              if (canDelete) {
                 entries.add(
                   PopupMenuItem<_ProductMoreAction>(
                     value: _ProductMoreAction.edit,
@@ -1289,20 +1291,87 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     }
   }
 
-  bool get _canDeleteProduct {
+  /// 동기적으로 권한 체크 (sellerId가 비어있으면 false 반환)
+  bool get _canDeleteProductSync {
     if (AppConfig.useFirebase) {
       final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return false;
-      return currentUser.uid == widget.product.sellerId;
+      if (currentUser == null) {
+        debugPrint('❌ 수정 권한 체크 실패: 현재 사용자가 로그인하지 않음');
+        return false;
+      }
+      final sellerId = widget.product.sellerId;
+      if (sellerId.isEmpty) {
+        debugPrint('⚠️ sellerId가 비어있음. productId: ${widget.product.id}');
+        // sellerId가 비어있으면 권한 없음으로 처리 (비동기 확인은 _canDeleteProductAsync에서 수행)
+        return false;
+      }
+      final canDelete = currentUser.uid == sellerId;
+      if (!canDelete) {
+        debugPrint('❌ 수정 권한 체크 실패: currentUser.uid=${currentUser.uid}, sellerId=$sellerId');
+      }
+      return canDelete;
     }
     final authProvider = context.read<EmailAuthProvider>();
     final uid = authProvider.user?.uid;
-    if (uid == null) return false;
-    return uid == widget.product.sellerId;
+    if (uid == null) {
+      debugPrint('❌ 수정 권한 체크 실패: 현재 사용자가 로그인하지 않음 (로컬 모드)');
+      return false;
+    }
+    final sellerId = widget.product.sellerId;
+    if (sellerId.isEmpty) {
+      debugPrint('❌ 수정 권한 체크 실패: sellerId가 비어있음. productId: ${widget.product.id} (로컬 모드)');
+      return false;
+    }
+    final canDelete = uid == sellerId;
+    if (!canDelete) {
+      debugPrint('❌ 수정 권한 체크 실패: uid=$uid, sellerId=$sellerId (로컬 모드)');
+    }
+    return canDelete;
   }
 
+  /// 비동기적으로 권한 체크 (Firestore에서 sellerId 확인)
+  Future<bool> _canDeleteProductAsync() async {
+    if (AppConfig.useFirebase) {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return false;
+      }
+      var sellerId = widget.product.sellerId;
+      if (sellerId.isEmpty) {
+        debugPrint('⚠️ sellerId가 비어있음. Firestore에서 직접 확인 시도. productId: ${widget.product.id}');
+        // sellerId가 비어있으면 Firestore에서 직접 확인
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('products')
+              .doc(widget.product.id)
+              .get();
+          if (doc.exists) {
+            sellerId = doc.data()?['sellerUid'] as String? ?? '';
+            debugPrint('✅ Firestore에서 sellerId 확인: $sellerId');
+          }
+        } catch (e) {
+          debugPrint('❌ Firestore에서 sellerId 확인 실패: $e');
+          return false;
+        }
+        if (sellerId.isEmpty) {
+          debugPrint('❌ 수정 권한 체크 실패: Firestore에서도 sellerId를 찾을 수 없음');
+          return false;
+        }
+      }
+      final canDelete = currentUser.uid == sellerId;
+      if (!canDelete) {
+        debugPrint('❌ 수정 권한 체크 실패: currentUser.uid=${currentUser.uid}, sellerId=$sellerId');
+      }
+      return canDelete;
+    }
+    return _canDeleteProductSync;
+  }
+
+  bool get _canDeleteProduct => _canDeleteProductSync;
+
   Future<void> _confirmDeleteProduct() async {
-    if (!_canDeleteProduct) {
+    final canDelete = await _canDeleteProductAsync();
+    if (!canDelete) {
       _showSnackBar('삭제 권한이 없습니다');
       return;
     }

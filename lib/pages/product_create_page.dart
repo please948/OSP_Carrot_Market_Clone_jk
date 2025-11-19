@@ -250,7 +250,7 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
             'parent': actualRegion.parent,
           },
           'universityId': user.universityId,
-          'sellerUid': user.uid,
+          'sellerUid': authUser.uid, // FirebaseAuth의 현재 사용자 UID 사용
           'sellerName': user.displayName,
           'sellerPhotoUrl': user.photoUrl,
           'likeCount': 0,
