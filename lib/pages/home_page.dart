@@ -860,6 +860,135 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  /// Firestore 문서가 필터링 반경 내에 있는지 확인하는 헬퍼 함수
+  ///
+  /// Parameters:
+  /// - [doc]: Firestore 문서 스냅샷 (QueryDocumentSnapshot)
+  /// - [locationProvider]: LocationProvider 인스턴스
+  ///
+  /// Returns:
+  /// - [bool]: 반경 내에 위치가 하나라도 있으면 true, 없으면 false
+  bool _isProductInRadius(
+    QueryDocumentSnapshot doc,
+    LocationProvider locationProvider,
+  ) {
+    if (locationProvider.filterLatitude == null ||
+        locationProvider.filterLongitude == null) {
+      return false;
+    }
+    final data = doc.data() as Map<String, dynamic>;
+    return _isFirestoreDocWithinRadius(
+      data,
+      locationProvider.filterLatitude!,
+      locationProvider.filterLongitude!,
+      locationProvider.searchRadius,
+    );
+  }
+
+  /// Firestore 문서가 필터링 반경 내에 있는지 확인하는 헬퍼 함수
+  ///
+  /// Parameters:
+  /// - [data]: Firestore 문서 데이터 (Map<String, dynamic>)
+  /// - [filterLat]: 필터링 기준 위도
+  /// - [filterLng]: 필터링 기준 경도
+  /// - [radius]: 검색 반경 (미터 단위)
+  ///
+  /// Returns:
+  /// - [bool]: 반경 내에 위치가 하나라도 있으면 true, 없으면 false
+  bool _isFirestoreDocWithinRadius(
+    Map<String, dynamic> data,
+    double filterLat,
+    double filterLng,
+    double radius,
+  ) {
+    final location = data['location'] as GeoPoint?;
+    final meetLocations = data['meetLocations'] as List?;
+
+    // meetLocations가 있으면 모든 위치를 확인
+    if (meetLocations != null && meetLocations.isNotEmpty) {
+      for (final loc in meetLocations) {
+        GeoPoint? geoPoint;
+        if (loc is GeoPoint) {
+          geoPoint = loc;
+        } else if (loc is Map) {
+          final lat = loc['latitude'] as double?;
+          final lng = loc['longitude'] as double?;
+          if (lat != null && lng != null) {
+            geoPoint = GeoPoint(lat, lng);
+          }
+        }
+
+        if (geoPoint != null) {
+          final distance = Geolocator.distanceBetween(
+            filterLat,
+            filterLng,
+            geoPoint.latitude,
+            geoPoint.longitude,
+          );
+          if (distance <= radius) {
+            return true; // 하나라도 범위 내에 있으면 포함
+          }
+        }
+      }
+      return false; // 모든 위치가 범위 밖이면 제외
+    }
+
+    // meetLocations가 없으면 기본 location 확인
+    if (location != null) {
+      final distance = Geolocator.distanceBetween(
+        filterLat,
+        filterLng,
+        location.latitude,
+        location.longitude,
+      );
+      return distance <= radius;
+    }
+
+    return false; // 위치 정보가 없으면 제외
+  }
+
+  /// Listing 모델이 필터링 반경 내에 있는지 확인하는 헬퍼 함수
+  ///
+  /// Parameters:
+  /// - [listing]: Listing 모델 인스턴스
+  /// - [filterLat]: 필터링 기준 위도
+  /// - [filterLng]: 필터링 기준 경도
+  /// - [radius]: 검색 반경 (미터 단위)
+  ///
+  /// Returns:
+  /// - [bool]: 반경 내에 위치가 하나라도 있으면 true, 없으면 false
+  bool _isListingWithinRadius(
+    Listing listing,
+    double filterLat,
+    double filterLng,
+    double radius,
+  ) {
+    // meetLocations가 있으면 모든 위치를 확인
+    if (listing.meetLocations.isNotEmpty) {
+      for (final loc in listing.meetLocations) {
+        final distance = Geolocator.distanceBetween(
+          filterLat,
+          filterLng,
+          loc.latitude,
+          loc.longitude,
+        );
+        if (distance <= radius) {
+          return true; // 하나라도 범위 내에 있으면 포함
+        }
+      }
+      return false; // 모든 위치가 범위 밖이면 제외
+    }
+
+    // meetLocations가 없으면 기본 location 확인
+    final distance = Geolocator.distanceBetween(
+      filterLat,
+      filterLng,
+      listing.location.latitude,
+      listing.location.longitude,
+    );
+    return distance <= radius;
+  }
+
   /// 금오 마켓 스타일의 메인 화면을 생성하는 위젯
   ///
   /// Parameters:
@@ -915,21 +1044,12 @@ class _HomePageState extends State<HomePage> {
                 return _firestoreDocToProduct(doc.id, data, viewerUid);
               }).toList();
 
+              // 위치 필터링이 활성화된 경우 meetLocations를 확인하여 필터링
               var filteredCount = products.length;
-              if (locationProvider.filterLatitude != null &&
-                  locationProvider.filterLongitude != null) {
-                filteredCount = products.where((product) {
-                  if (product.x == 0.0 && product.y == 0.0) {
-                    return false;
-                  }
-                  final distance = Geolocator.distanceBetween(
-                    locationProvider.filterLatitude!,
-                    locationProvider.filterLongitude!,
-                    product.x,
-                    product.y,
-                  );
-                  return distance <= locationProvider.searchRadius;
-                }).length;
+              if (locationProvider.isLocationFilterEnabled) {
+                filteredCount = snapshot.data!.docs
+                    .where((doc) => _isProductInRadius(doc, locationProvider))
+                    .length;
               }
 
               return Container(
@@ -963,24 +1083,18 @@ class _HomePageState extends State<HomePage> {
         }
 
         // 로컬 모드
-        final products = LocalAppRepository.instance
-            .getProducts(viewerUid: viewerUid)
-            .toList();
+        var listings = LocalAppRepository.instance.getAllListings();
         
-        var filteredCount = products.length;
+        var filteredCount = listings.length;
         if (locationProvider.filterLatitude != null &&
             locationProvider.filterLongitude != null) {
-          filteredCount = products.where((product) {
-            if (product.x == 0.0 && product.y == 0.0) {
-              return false;
-            }
-            final distance = Geolocator.distanceBetween(
+          filteredCount = listings.where((listing) {
+            return _isListingWithinRadius(
+              listing,
               locationProvider.filterLatitude!,
               locationProvider.filterLongitude!,
-              product.x,
-              product.y,
+              locationProvider.searchRadius,
             );
-            return distance <= locationProvider.searchRadius;
           }).length;
         }
 
@@ -1213,7 +1327,15 @@ class _HomePageState extends State<HomePage> {
                 );
               }
               
-              final products = snapshot.data!.docs.map((doc) {
+              // 위치 필터링이 활성화된 경우 meetLocations를 확인하여 필터링
+              var docs = snapshot.data!.docs;
+              if (locationProvider.isLocationFilterEnabled) {
+                docs = docs
+                    .where((doc) => _isProductInRadius(doc, locationProvider))
+                    .toList();
+              }
+              
+              final products = docs.map((doc) {
                 final data = doc.data() as Map<String, dynamic>;
                 return _firestoreDocToProduct(doc.id, data, viewerUid);
               }).toList();
@@ -1224,9 +1346,31 @@ class _HomePageState extends State<HomePage> {
         }
         
         // 로컬 모드
-        final products = LocalAppRepository.instance
-            .getProducts(viewerUid: viewerUid)
+        var listings = LocalAppRepository.instance.getAllListings();
+        
+        // 위치 필터링이 활성화된 경우 meetLocations를 확인하여 필터링
+        if (locationProvider.isLocationFilterEnabled &&
+            locationProvider.filterLatitude != null &&
+            locationProvider.filterLongitude != null) {
+          listings = listings.where((listing) {
+            return _isListingWithinRadius(
+              listing,
+              locationProvider.filterLatitude!,
+              locationProvider.filterLongitude!,
+              locationProvider.searchRadius,
+            );
+          }).toList();
+        }
+        
+        // 필터링된 listings를 Product로 변환
+        final products = listings
+            .map((listing) => LocalAppRepository.instance.getProductById(
+                  listing.id,
+                  viewerUid: viewerUid,
+                ))
+            .whereType<Product>()
             .toList();
+        
         return _buildProductGridView(products);
       },
     );
@@ -1235,10 +1379,14 @@ class _HomePageState extends State<HomePage> {
   /// Product 리스트를 GridView로 표시
   Widget _buildProductGridView(List<Product> products) {
     var allProducts = products.map((product) {
+      // 상세 위치 정보가 있으면 우선 표시, 없으면 기본 위치 정보 표시
+      final locationText = product.meetLocationDetail?.isNotEmpty == true
+          ? product.meetLocationDetail!
+          : product.location;
       return {
         'title': product.title,
         'price': product.formattedPrice,
-        'location': product.location,
+        'location': locationText,
         'image': product.imageUrls.isNotEmpty ? product.imageUrls.first : null,
         'category': product.category,
         'product': product,
@@ -1246,25 +1394,9 @@ class _HomePageState extends State<HomePage> {
     }).toList();
 
     // 위치 필터링 적용 (현재 위치 또는 학교 주변)
-    final locationProvider = context.read<LocationProvider>();
-    if (locationProvider.isLocationFilterEnabled &&
-        locationProvider.filterLatitude != null &&
-        locationProvider.filterLongitude != null) {
-      allProducts = allProducts.where((productMap) {
-        final product = productMap['product'] as Product;
-        // Product의 x, y가 유효한 경우에만 거리 계산
-        if (product.x == 0.0 && product.y == 0.0) {
-          return false; // 위치 정보가 없는 상품은 제외
-        }
-        final distance = Geolocator.distanceBetween(
-          locationProvider.filterLatitude!,
-          locationProvider.filterLongitude!,
-          product.x,
-          product.y,
-        );
-        return distance <= locationProvider.searchRadius;
-      }).toList();
-    }
+    // 주의: _buildProductGridView는 이미 필터링된 Product 리스트를 받으므로
+    // 여기서는 추가 필터링을 하지 않습니다.
+    // 위치 필터링은 _buildProductList에서 Firestore 문서 단계에서 수행됩니다.
 
     // 선택된 카테고리에 따라 필터링
     final filteredProducts = _selectedCategory == null
@@ -1444,12 +1576,39 @@ class _HomePageState extends State<HomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            product['title']! as String,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  product['title']! as String,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              // 같이사요 배지
+                              if (productModel?.category == ProductCategory.groupBuy)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange[500],
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    '같이사요',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -1635,6 +1794,11 @@ class Life extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(child: Text('동네생활 페이지'));
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('동네 생활'),
+      ),
+      body: Container(child: const Text('동네생활 페이지')),
+    );
   }
 }
