@@ -1377,10 +1377,14 @@ class _HomePageState extends State<HomePage> {
   /// Product 리스트를 GridView로 표시
   Widget _buildProductGridView(List<Product> products) {
     var allProducts = products.map((product) {
+      // 상세 위치 정보가 있으면 우선 표시, 없으면 기본 위치 정보 표시
+      final locationText = product.meetLocationDetail?.isNotEmpty == true
+          ? product.meetLocationDetail!
+          : product.location;
       return {
         'title': product.title,
         'price': product.formattedPrice,
-        'location': product.location,
+        'location': locationText,
         'image': product.imageUrls.isNotEmpty ? product.imageUrls.first : null,
         'category': product.category,
         'product': product,
@@ -1570,12 +1574,39 @@ class _HomePageState extends State<HomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            product['title']! as String,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  product['title']! as String,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              // 같이사요 배지
+                              if (productModel?.category == ProductCategory.groupBuy)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange[500],
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    '같이사요',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                           const SizedBox(height: 4),
                           Text(
