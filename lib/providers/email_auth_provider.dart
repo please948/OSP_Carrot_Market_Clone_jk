@@ -77,8 +77,7 @@ class EmailAuthProvider with ChangeNotifier {
                 region: regionData != null ? Region(
                   code: regionData['code'] as String? ?? '',
                   name: regionData['name'] as String? ?? '',
-                  level: (regionData['level'] as int?)?.toString() ?? 
-                         regionData['level'] as String? ?? 'unknown',
+                  level: _parseRegionLevel(regionData['level']),
                   parent: regionData['parent'] as String?,
                 ) : _getDefaultRegionFromEmail(user.email ?? ''),
                 universityId: data['universityId'] as String? ?? 
@@ -112,6 +111,14 @@ class EmailAuthProvider with ChangeNotifier {
         notifyListeners();
       });
     }
+  }
+
+  /// region level 값을 안전하게 파싱하는 헬퍼 메서드
+  String _parseRegionLevel(dynamic level) {
+    if (level == null) return 'unknown';
+    if (level is String) return level;
+    if (level is int) return level.toString();
+    return 'unknown';
   }
 
   /// 이메일로부터 기본 지역을 가져옵니다
