@@ -77,7 +77,7 @@ class EmailAuthProvider with ChangeNotifier {
                 region: regionData != null ? Region(
                   code: regionData['code'] as String? ?? '',
                   name: regionData['name'] as String? ?? '',
-                  level: regionData['level']?.toString() ?? 'unknown',
+                  level: _parseRegionLevel(regionData['level']),
                   parent: regionData['parent'] as String?,
                 ) : _getDefaultRegionFromEmail(user.email ?? ''),
                 universityId: data['universityId'] as String? ?? 
@@ -112,6 +112,14 @@ class EmailAuthProvider with ChangeNotifier {
         notifyListeners();
       });
     }
+  }
+
+  /// region level 값을 안전하게 파싱하는 헬퍼 메서드
+  String _parseRegionLevel(dynamic level) {
+    if (level == null) return 'unknown';
+    if (level is String) return level;
+    if (level is int) return level.toString();
+    return 'unknown';
   }
 
   /// 이메일로부터 기본 지역을 가져옵니다
@@ -425,8 +433,10 @@ class EmailAuthProvider with ChangeNotifier {
   }
 
   AppUserProfile _mapFirebaseUser(User user) {
-    /// Firestore에서 사용자 정보 가져오기
+    // Firestore에서 사용자 정보 가져오기
     if (AppConfig.useFirebase) {
+      // 비동기적으로 Firestore에서 정보를 가져오지만,
+      // 동기적으로 반환해야 하므로 기본값 사용 후 업데이트
       final email = user.email ?? '';
       final universityCode = _localRepo.getUniversityCodeByEmailDomain(email);
       final region = universityCode != null

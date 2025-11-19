@@ -178,7 +178,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             },
             itemBuilder: (context) {
               final entries = <PopupMenuEntry<_ProductMoreAction>>[];
-              if (_canDeleteProduct) {
+              // 권한 체크는 동기적으로 수행 (sellerId가 비어있으면 false)
+              final canDelete = _canDeleteProductSync;
+              if (canDelete) {
                 entries.add(
                   PopupMenuItem<_ProductMoreAction>(
                     value: _ProductMoreAction.edit,
@@ -548,15 +550,53 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
   /// 판매자 정보를 생성하는 위젯
   Widget _buildSellerInfo() {
+    // sellerNickname이 비어있으면 Firestore에서 사용자 정보 가져오기
+    final sellerNickname = widget.product.sellerNickname.isNotEmpty
+        ? widget.product.sellerNickname
+        : null;
+    
+    if (sellerNickname == null && AppConfig.useFirebase) {
+      // Firestore에서 사용자 정보 가져오기
+      return FutureBuilder<DocumentSnapshot>(
+        future: FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.product.sellerId)
+            .get(),
+        builder: (context, snapshot) {
+          String displayName = '사용자';
+          String? profileImageUrl = widget.product.sellerProfileImageUrl;
+          
+          if (snapshot.hasData && snapshot.data!.exists) {
+            final userData = snapshot.data!.data() as Map<String, dynamic>?;
+            displayName = userData?['name'] as String? ?? 
+                         userData?['displayName'] as String? ?? 
+                         '사용자';
+            profileImageUrl = profileImageUrl ?? 
+                             userData?['photoUrl'] as String?;
+          }
+          
+          return _buildSellerInfoRow(displayName, profileImageUrl);
+        },
+      );
+    }
+    
+    return _buildSellerInfoRow(
+      sellerNickname ?? '사용자',
+      widget.product.sellerProfileImageUrl,
+    );
+  }
+  
+  /// 판매자 정보 행을 생성하는 헬퍼 위젯
+  Widget _buildSellerInfoRow(String sellerName, String? profileImageUrl) {
     return Row(
       children: [
         // 판매자 프로필 이미지
         CircleAvatar(
           radius: 25,
-          backgroundImage: widget.product.sellerProfileImageUrl != null
-              ? NetworkImage(widget.product.sellerProfileImageUrl!)
+          backgroundImage: profileImageUrl != null
+              ? NetworkImage(profileImageUrl)
               : null,
-          child: widget.product.sellerProfileImageUrl == null
+          child: profileImageUrl == null
               ? const Icon(Icons.person, color: Colors.grey)
               : null,
         ),
@@ -567,7 +607,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.product.sellerNickname,
+                sellerName,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -592,8 +632,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               MaterialPageRoute(
                 builder: (context) => SellerProfilePage(
                   sellerId: widget.product.sellerId,
-                  sellerNickname: widget.product.sellerNickname,
-                  sellerProfileImageUrl: widget.product.sellerProfileImageUrl,
+                  sellerNickname: sellerName,
+                  sellerProfileImageUrl: profileImageUrl,
                 ),
               ),
             );
@@ -990,6 +1030,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       'text': message,
       'createdAt': FieldValue.serverTimestamp(),
       'isRead': false,
+      'readBy': [senderId], // 보낸 사람은 자동으로 읽은 것으로 처리
     });
 
     /// 채팅방 정보 업데이트
@@ -1250,20 +1291,87 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     }
   }
 
-  bool get _canDeleteProduct {
+  /// 동기적으로 권한 체크 (sellerId가 비어있으면 false 반환)
+  bool get _canDeleteProductSync {
     if (AppConfig.useFirebase) {
       final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return false;
-      return currentUser.uid == widget.product.sellerId;
+      if (currentUser == null) {
+        debugPrint('❌ 수정 권한 체크 실패: 현재 사용자가 로그인하지 않음');
+        return false;
+      }
+      final sellerId = widget.product.sellerId;
+      if (sellerId.isEmpty) {
+        debugPrint('⚠️ sellerId가 비어있음. productId: ${widget.product.id}');
+        // sellerId가 비어있으면 권한 없음으로 처리 (비동기 확인은 _canDeleteProductAsync에서 수행)
+        return false;
+      }
+      final canDelete = currentUser.uid == sellerId;
+      if (!canDelete) {
+        debugPrint('❌ 수정 권한 체크 실패: currentUser.uid=${currentUser.uid}, sellerId=$sellerId');
+      }
+      return canDelete;
     }
     final authProvider = context.read<EmailAuthProvider>();
     final uid = authProvider.user?.uid;
-    if (uid == null) return false;
-    return uid == widget.product.sellerId;
+    if (uid == null) {
+      debugPrint('❌ 수정 권한 체크 실패: 현재 사용자가 로그인하지 않음 (로컬 모드)');
+      return false;
+    }
+    final sellerId = widget.product.sellerId;
+    if (sellerId.isEmpty) {
+      debugPrint('❌ 수정 권한 체크 실패: sellerId가 비어있음. productId: ${widget.product.id} (로컬 모드)');
+      return false;
+    }
+    final canDelete = uid == sellerId;
+    if (!canDelete) {
+      debugPrint('❌ 수정 권한 체크 실패: uid=$uid, sellerId=$sellerId (로컬 모드)');
+    }
+    return canDelete;
   }
 
+  /// 비동기적으로 권한 체크 (Firestore에서 sellerId 확인)
+  Future<bool> _canDeleteProductAsync() async {
+    if (AppConfig.useFirebase) {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return false;
+      }
+      var sellerId = widget.product.sellerId;
+      if (sellerId.isEmpty) {
+        debugPrint('⚠️ sellerId가 비어있음. Firestore에서 직접 확인 시도. productId: ${widget.product.id}');
+        // sellerId가 비어있으면 Firestore에서 직접 확인
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('products')
+              .doc(widget.product.id)
+              .get();
+          if (doc.exists) {
+            sellerId = doc.data()?['sellerUid'] as String? ?? '';
+            debugPrint('✅ Firestore에서 sellerId 확인: $sellerId');
+          }
+        } catch (e) {
+          debugPrint('❌ Firestore에서 sellerId 확인 실패: $e');
+          return false;
+        }
+        if (sellerId.isEmpty) {
+          debugPrint('❌ 수정 권한 체크 실패: Firestore에서도 sellerId를 찾을 수 없음');
+          return false;
+        }
+      }
+      final canDelete = currentUser.uid == sellerId;
+      if (!canDelete) {
+        debugPrint('❌ 수정 권한 체크 실패: currentUser.uid=${currentUser.uid}, sellerId=$sellerId');
+      }
+      return canDelete;
+    }
+    return _canDeleteProductSync;
+  }
+
+  bool get _canDeleteProduct => _canDeleteProductSync;
+
   Future<void> _confirmDeleteProduct() async {
-    if (!_canDeleteProduct) {
+    final canDelete = await _canDeleteProductAsync();
+    if (!canDelete) {
       _showSnackBar('삭제 권한이 없습니다');
       return;
     }
