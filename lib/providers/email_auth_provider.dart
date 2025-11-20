@@ -307,10 +307,16 @@ class EmailAuthProvider with ChangeNotifier {
       if (AppConfig.useFirebase) {
         /// 트랜잭션을 사용하여 닉네임 중복 방지 및 업데이트
         await FirebaseFirestore.instance.runTransaction((transaction) async {
+          // 모든 읽기 작업을 먼저 수행
           final nicknameRef = FirebaseFirestore.instance
               .collection('nicknames')
               .doc(nickname);
           final nicknameDoc = await transaction.get(nicknameRef);
+
+          final userRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(_user!.uid);
+          final userDoc = await transaction.get(userRef);
 
           // 닉네임이 이미 존재하는지 확인
           if (nicknameDoc.exists) {
@@ -322,22 +328,48 @@ class EmailAuthProvider with ChangeNotifier {
             // 현재 사용자가 이미 설정한 닉네임인 경우는 통과
           }
 
+          // 모든 쓰기 작업 수행 (읽기 작업 완료 후)
           // 닉네임 문서 생성 또는 업데이트로 선점
           transaction.set(nicknameRef, {
             'uid': _user!.uid,
             'createdAt': FieldValue.serverTimestamp(),
           });
 
-          // 사용자 프로필 업데이트
-          final userRef = FirebaseFirestore.instance
-              .collection('users')
-              .doc(_user!.uid);
-          transaction.update(userRef, {
-            'displayName': nickname,
-            'name': nickname,
-            'hasSetNickname': true,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          // 사용자 프로필 업데이트 (문서가 없으면 생성, 있으면 업데이트)
+          if (userDoc.exists) {
+            transaction.update(userRef, {
+              'displayName': nickname,
+              'name': nickname,
+              'hasSetNickname': true,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          } else {
+            // 문서가 없으면 생성 (회원가입 시 생성되지 않은 경우 대비)
+            final email = _auth?.currentUser?.email ?? '';
+            final universityCode = _localRepo.getUniversityCodeByEmailDomain(email);
+            final region = universityCode != null
+                ? _localRepo.getDefaultRegionByUniversity(universityCode)
+                : null;
+            
+            transaction.set(userRef, {
+              'uid': _user!.uid,
+              'email': email,
+              'displayName': nickname,
+              'name': nickname,
+              'photoUrl': _auth?.currentUser?.photoURL,
+              'universityId': universityCode ?? 'UNKNOWN',
+              'region': region != null ? {
+                'code': region.code,
+                'name': region.name,
+                'level': region.level,
+                'parent': region.parent,
+              } : null,
+              'emailVerified': _auth?.currentUser?.emailVerified ?? false,
+              'hasSetNickname': true,
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+          }
         });
 
         /// 로컬 사용자 정보 업데이트
