@@ -26,7 +26,7 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
     super.dispose();
   }
 
-  /// 닉네임 중복 확인
+  /// 닉네임 중복 확인 (UI 피드백용)
   Future<void> _checkNickname() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -37,44 +37,41 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
       _isAvailable = null;
     });
 
+    bool? isAvailable;
+    Object? error;
+
     try {
       if (AppConfig.useFirebase) {
-        /// Firestore에서 중복 확인
         final querySnapshot = await FirebaseFirestore.instance
             .collection('users')
             .where('displayName', isEqualTo: nickname)
             .limit(1)
             .get();
-
-        setState(() {
-          _isAvailable = querySnapshot.docs.isEmpty;
-        });
-
-        if (_isAvailable!) {
-          _showSnackBar('사용 가능한 닉네임입니다!', isSuccess: true);
-        } else {
-          _showSnackBar('이미 사용 중인 닉네임입니다.', isSuccess: false);
-        }
+        isAvailable = querySnapshot.docs.isEmpty;
       } else {
-        /// 로컬 모드에서는 항상 사용 가능
-        setState(() {
-          _isAvailable = true;
-        });
-        _showSnackBar('사용 가능한 닉네임입니다!', isSuccess: true);
+        isAvailable = true;
       }
     } catch (e) {
-      _showSnackBar('중복 확인 중 오류가 발생했습니다: ${e.toString()}', isSuccess: false);
-      setState(() {
-        _isAvailable = null;
-      });
-    } finally {
-      setState(() {
-        _isChecking = false;
-      });
+      error = e;
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isChecking = false;
+      _isAvailable = error == null ? isAvailable : null;
+    });
+
+    if (error != null) {
+      _showSnackBar('중복 확인 중 오류가 발생했습니다: ${error.toString()}', isSuccess: false);
+    } else if (isAvailable == true) {
+      _showSnackBar('사용 가능한 닉네임입니다!', isSuccess: true);
+    } else if (isAvailable == false) {
+      _showSnackBar('이미 사용 중인 닉네임입니다.', isSuccess: false);
     }
   }
 
-  /// 닉네임 설정 완료
+  /// 닉네임 설정 완료 (트랜잭션으로 경쟁 조건 방지)
   Future<void> _submitNickname() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -97,12 +94,55 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
     });
 
     try {
-      /// 닉네임 설정
-      await authProvider.updateNickname(nickname);
+      if (AppConfig.useFirebase) {
+        // 트랜잭션으로 원자적 처리
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          // 1. 저장 시점에 중복 체크
+          final querySnapshot = await FirebaseFirestore.instance
+              .collection('users')
+              .where('displayName', isEqualTo: nickname)
+              .limit(1)
+              .get();
+
+          if (querySnapshot.docs.isNotEmpty) {
+            throw Exception('이미 사용 중인 닉네임입니다.');
+          }
+
+          // 2. 중복이 없으면 사용자 프로필 업데이트
+          final userRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid);
+
+          transaction.update(userRef, {
+            'displayName': nickname,
+            'hasSetNickname': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        });
+
+        // Provider 상태 새로고침
+        await authProvider.reloadUser();
+      } else {
+        // 로컬 모드
+        await authProvider.updateNickname(nickname);
+      }
+
+      if (!mounted) return;
       _showSnackBar('닉네임이 설정되었습니다!', isSuccess: true);
       /// AuthCheck가 자동으로 HomePage로 이동시킴
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      _showSnackBar('닉네임 설정 중 오류가 발생했습니다: ${e.message}', isSuccess: false);
     } catch (e) {
-      _showSnackBar('닉네임 설정 중 오류가 발생했습니다: ${e.toString()}', isSuccess: false);
+      if (!mounted) return;
+      if (e.toString().contains('이미 사용 중인')) {
+        _showSnackBar('이미 사용 중인 닉네임입니다.', isSuccess: false);
+        setState(() {
+          _isAvailable = false;
+        });
+      } else {
+        _showSnackBar('닉네임 설정 중 오류가 발생했습니다: ${e.toString()}', isSuccess: false);
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -227,13 +267,13 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
                         suffixIcon: _isAvailable == null
                             ? null
                             : Icon(
-                                _isAvailable!
-                                    ? Icons.check_circle
-                                    : Icons.cancel,
-                                color: _isAvailable!
-                                    ? Colors.green
-                                    : Colors.red,
-                              ),
+                          _isAvailable == true
+                              ? Icons.check_circle
+                              : Icons.cancel,
+                          color: _isAvailable == true
+                              ? Colors.green
+                              : Colors.red,
+                        ),
                       ),
                       textInputAction: TextInputAction.done,
                       onChanged: (value) {
@@ -265,15 +305,15 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
                     ),
                     child: _isChecking
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          )
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
+                      ),
+                    )
                         : const Text('중복\n확인'),
                   ),
                 ],
@@ -283,8 +323,8 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
               /// 닉네임 규칙 안내
               const Text(
                 '• 2자 이상, 10자 이하\n'
-                '• 한글, 영문, 숫자만 사용 가능\n'
-                '• 특수문자, 공백 사용 불가',
+                    '• 한글, 영문, 숫자만 사용 가능\n'
+                    '• 특수문자, 공백 사용 불가',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.black54,
@@ -310,22 +350,22 @@ class _NicknameSetupPageState extends State<NicknameSetupPage> {
                   ),
                   child: _isSubmitting
                       ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        )
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.white,
+                      ),
+                    ),
+                  )
                       : const Text(
-                          '설정 완료',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                    '설정 완료',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ),
             ],
