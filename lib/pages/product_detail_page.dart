@@ -86,7 +86,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     _isLiked = widget.product.isLiked;
     _likeCount = widget.product.likeCount;
     _viewCount = widget.product.viewCount;
-    getReported();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+          getReported();
+    });
 
 
 
@@ -1353,8 +1355,15 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   }
 
   bool get _isOwner {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    return uid != null && uid == widget.product.sellerId;
+        if (AppConfig.useFirebase) {
+
+          final uid = FirebaseAuth.instance.currentUser?.uid;
+          return uid != null && uid == widget.product.sellerId;
+        } else {
+          final authProvider = context.read<EmailAuthProvider>();
+          final uid = authProvider.user?.uid;
+          return uid != null && uid == widget.product.sellerId;
+        }
   }
 
   void _reportCurrentPage() async {
@@ -1413,7 +1422,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("⚠️ 이 상품은 신고가 여러 번 접수되어 관리자의 검토 중에 있습니다.주의하세요."),
+            content: Text("⚠️ 이 상품은 여러 번 신고되어 관리자 검토 중입니다."),
             duration: Duration(seconds: 2),
           ),
         );
