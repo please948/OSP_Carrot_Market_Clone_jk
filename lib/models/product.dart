@@ -129,7 +129,16 @@ class Product {
   });
 
   /// 안전한 Enum 파싱 헬퍼 메서드
-  static T _safeParseEnum<T>(
+  ///
+  /// Firestore나 JSON에서 받은 정수 값을 Enum으로 안전하게 변환합니다.
+  /// 값이 범위를 벗어나거나 잘못된 타입인 경우 기본값을 반환합니다.
+  ///
+  /// [values] Enum 값들의 리스트 (예: ProductCategory.values)
+  /// [value] 변환할 값 (정수여야 함)
+  /// [defaultValue] 변환 실패 시 반환할 기본값
+  ///
+  /// Returns: 변환된 Enum 값 또는 기본값
+  static T safeParseEnum<T>(
     List<T> values,
     dynamic value,
     T defaultValue,
@@ -152,12 +161,12 @@ class Product {
       description: data['description'] as String? ?? '',
       price: (data['price'] as num?)?.toInt() ?? 0,
       imageUrls: List<String>.from(data['imageUrls'] as List? ?? []),
-      category: _safeParseEnum(
+      category: safeParseEnum(
         ProductCategory.values,
         data['category'],
         ProductCategory.etc,
       ),
-      status: _safeParseEnum(
+      status: safeParseEnum(
         ProductStatus.values,
         data['status'],
         ProductStatus.onSale,
@@ -185,12 +194,12 @@ class Product {
       description: json['description'] as String,
       price: json['price'] as int,
       imageUrls: List<String>.from(json['imageUrls'] as List),
-      category: _safeParseEnum(
+      category: safeParseEnum(
         ProductCategory.values,
         json['category'],
         ProductCategory.etc,
       ),
-      status: _safeParseEnum(
+      status: safeParseEnum(
         ProductStatus.values,
         json['status'],
         ProductStatus.onSale,

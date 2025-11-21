@@ -1258,26 +1258,18 @@ class _HomePageState extends State<HomePage> {
     final updatedAt = data['updatedAt'] as Timestamp?;
     final likedUserIds = List<String>.from(data['likedUserIds'] ?? []);
     
-    // 안전한 Enum 파싱 헬퍼 함수
-    T _safeParseEnum<T>(List<T> values, dynamic value, T defaultValue) {
-      if (value is int && value >= 0 && value < values.length) {
-        return values[value];
-      }
-      return defaultValue;
-    }
-
     return Product(
       id: docId,
       title: data['title'] as String? ?? '',
       description: data['description'] as String? ?? '',
       price: (data['price'] as num?)?.toInt() ?? 0,
       imageUrls: List<String>.from(data['images'] ?? []),
-      category: _safeParseEnum(
+      category: Product.safeParseEnum(
         ProductCategory.values,
         data['category'],
         ProductCategory.etc,
       ),
-      status: _safeParseEnum(
+      status: Product.safeParseEnum(
         ProductStatus.values,
         data['status'],
         ProductStatus.onSale,
