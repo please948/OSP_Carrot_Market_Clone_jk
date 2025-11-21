@@ -1379,8 +1379,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
     final productId = widget.product.id;
 
-    try {
-      if (AppConfig.useFirebase) {
+    if (AppConfig.useFirebase) {
+      try {
         final productRef = FirebaseFirestore.instance
             .collection('products')
             .doc(productId);
@@ -1391,7 +1391,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         
         // 중복 신고 확인
         if (reportedBy.contains(uid)) {
-          _showSnackBar('이미 신고한 상품입니다');
+          if (mounted) {
+            _showSnackBar('이미 신고한 상품입니다');
+          }
           return;
         }
         
@@ -1404,24 +1406,39 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           'reported': FieldValue.increment(1),
           'reportedBy': reportedBy,
         }, SetOptions(merge: true));
-      } else {
-        // 로컬 모드 지원
-        final success = LocalAppRepository.instance.reportProduct(productId, uid);
-        if (!success) {
-          _showSnackBar('이미 신고한 상품입니다');
-          return;
+        
+        if (mounted) {
+          _showSnackBar('신고가 접수되었습니다');
+          // Refresh the report count to show potential warnings immediately.
+          getReported();
+        }
+      } catch (e) {
+        debugPrint('신고 오류: $e');
+        if (mounted) {
+          _showSnackBar('신고 처리 중 오류가 발생했습니다');
         }
       }
-      
-      if (mounted) {
-        _showSnackBar('신고가 접수되었습니다');
-        // Refresh the report count to show potential warnings immediately.
-        getReported();
-      }
-    } catch (e) {
-      debugPrint('신고 오류: $e');
-      if (mounted) {
-        _showSnackBar('신고 처리 중 오류가 발생했습니다');
+    } else {
+      // 로컬 모드 지원
+      try {
+        final success = LocalAppRepository.instance.reportProduct(productId, uid);
+        if (!success) {
+          if (mounted) {
+            _showSnackBar('이미 신고한 상품입니다');
+          }
+          return;
+        }
+        
+        if (mounted) {
+          _showSnackBar('신고가 접수되었습니다');
+          // Refresh the report count to show potential warnings immediately.
+          getReported();
+        }
+      } catch (e) {
+        debugPrint('신고 오류: $e');
+        if (mounted) {
+          _showSnackBar('신고 처리 중 오류가 발생했습니다');
+        }
       }
     }
   }
@@ -1429,29 +1446,54 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
   void getReported() async {
     if (AppConfig.useFirebase) {
-      final doc = await FirebaseFirestore.instance
-          .collection('products')
-          .doc(widget.product.id)
-          .get();
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('products')
+            .doc(widget.product.id)
+            .get();
 
-      _reported = doc.data()?['reported'] ?? 0;
+        _reported = doc.data()?['reported'] ?? 0;
+
+        if (mounted && _reported >= 5) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("⚠️ 이 상품은 여러 번 신고되어 관리자 검토 중입니다."),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          });
+        }
+
+        if (mounted) {
+          setState(() {});
+        }
+      } catch (e) {
+        debugPrint('신고 횟수 조회 오류: $e');
+      }
     } else {
       // 로컬 모드 지원
-      _reported = LocalAppRepository.instance.getReportedCount(widget.product.id);
-    }
+      try {
+        _reported = LocalAppRepository.instance.getReportedCount(widget.product.id);
 
-    if (mounted && _reported >= 5) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("⚠️ 이 상품은 여러 번 신고되어 관리자 검토 중입니다."),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      });
-    }
+        if (mounted && _reported >= 5) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text("⚠️ 이 상품은 여러 번 신고되어 관리자 검토 중입니다."),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          });
+        }
 
-    setState(() {});
+        if (mounted) {
+          setState(() {});
+        }
+      } catch (e) {
+        debugPrint('신고 횟수 조회 오류: $e');
+      }
+    }
   }
 
 
