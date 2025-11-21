@@ -37,6 +37,11 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {
+          // Tab index가 변경될 때 UI를 다시 빌드하여 AppBar actions 업데이트
+        });
+      }
       if (_tabController.index == 1 && _reportedProducts.isEmpty && !_loadingReports) {
         _loadReportedProducts();
       }
