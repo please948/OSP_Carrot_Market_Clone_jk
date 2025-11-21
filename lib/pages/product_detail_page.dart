@@ -1385,27 +1385,24 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             .collection('products')
             .doc(productId);
         
-        final doc = await productRef.get();
-        final data = doc.data();
-        final reportedBy = List<String>.from(data?['reportedBy'] ?? []);
-        
-        // 중복 신고 확인
-        if (reportedBy.contains(uid)) {
-          if (mounted) {
-            _showSnackBar('이미 신고한 상품입니다');
+        // 트랜잭션을 사용하여 동시성 문제 방지
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final doc = await transaction.get(productRef);
+          final data = doc.data();
+          final reportedBy = List<String>.from(data?['reportedBy'] ?? []);
+          
+          // 중복 신고 확인
+          if (reportedBy.contains(uid)) {
+            throw Exception('already_reported');
           }
-          return;
-        }
-        
-        reportedBy.add(uid);
-        
-        await FirebaseFirestore.instance
-            .collection('products')
-            .doc(productId)
-            .set({
-          'reported': FieldValue.increment(1),
-          'reportedBy': reportedBy,
-        }, SetOptions(merge: true));
+          
+          // reportedBy 배열에 추가하고 reported 카운트 증가
+          reportedBy.add(uid);
+          transaction.update(productRef, {
+            'reported': FieldValue.increment(1),
+            'reportedBy': reportedBy,
+          });
+        });
         
         if (mounted) {
           _showSnackBar('신고가 접수되었습니다');
@@ -1415,7 +1412,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       } catch (e) {
         debugPrint('신고 오류: $e');
         if (mounted) {
-          _showSnackBar('신고 처리 중 오류가 발생했습니다');
+          if (e.toString().contains('already_reported')) {
+            _showSnackBar('이미 신고한 상품입니다');
+          } else {
+            _showSnackBar('신고 처리 중 오류가 발생했습니다');
+          }
         }
       }
     } else {
