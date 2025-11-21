@@ -898,6 +898,7 @@ class LocalAppRepository {
       x: primaryLocation.latitude,
       y: primaryLocation.longitude,
       meetLocationDetail: listing.meetLocationDetail,
+      groupBuy: listing.groupBuy,
     );
   }
 

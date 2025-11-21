@@ -8,6 +8,7 @@
 /// @since 2024-01-01
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_sandbox/models/firestore_schema.dart';
 
 /// 상품 상태를 나타내는 enum
 enum ProductStatus {
@@ -105,6 +106,9 @@ class Product {
   /// 상세 거래 위치 (예: "금오공대 정문 앞 편의점", "인동동 마트 앞")
   final String? meetLocationDetail;
 
+  /// 같이사요 정보 (같이사요 상품인 경우에만 존재)
+  final GroupBuyInfo? groupBuy;
+
   /// Product 생성자
   const Product({
     required this.id,
@@ -126,6 +130,7 @@ class Product {
     this.x = 0.0,
     this.y = 0.0,
     this.meetLocationDetail,
+    this.groupBuy,
   });
 
   /// 안전한 Enum 파싱 헬퍼 메서드
@@ -189,7 +194,33 @@ class Product {
       x: location?.latitude ?? (data['x'] as num?)?.toDouble() ?? (data['latitude'] as num?)?.toDouble() ?? 0.0,
       y: location?.longitude ?? (data['y'] as num?)?.toDouble() ?? (data['longitude'] as num?)?.toDouble() ?? 0.0,
       meetLocationDetail: data['meetLocationDetail'] as String?,
+      groupBuy: _parseGroupBuyInfo(data['groupBuy']),
     );
+  }
+
+  /// GroupBuyInfo 파싱 헬퍼 메서드
+  static GroupBuyInfo? _parseGroupBuyInfo(dynamic groupBuyData) {
+    if (groupBuyData == null || groupBuyData is! Map<String, dynamic>) {
+      return null;
+    }
+    
+    try {
+      final orderDeadline = groupBuyData['orderDeadline'];
+      return GroupBuyInfo(
+        itemSummary: groupBuyData['itemSummary'] as String? ?? '',
+        maxMembers: (groupBuyData['maxMembers'] as num?)?.toInt() ?? 0,
+        currentMembers: (groupBuyData['currentMembers'] as num?)?.toInt() ?? 0,
+        pricePerPerson: (groupBuyData['pricePerPerson'] as num?)?.toInt() ?? 0,
+        orderDeadline: orderDeadline is Timestamp
+            ? orderDeadline.toDate()
+            : (orderDeadline is String
+                ? DateTime.parse(orderDeadline)
+                : DateTime.now()),
+        meetPlaceText: groupBuyData['meetPlaceText'] as String? ?? '',
+      );
+    } catch (e) {
+      return null;
+    }
   }
 
   /// JSON에서 Product 객체를 생성하는 팩토리 생성자
@@ -220,6 +251,7 @@ class Product {
       likeCount: json['likeCount'] as int? ?? 0,
       isLiked: json['isLiked'] as bool? ?? false,
       meetLocationDetail: json['meetLocationDetail'] as String?,
+      groupBuy: _parseGroupBuyInfo(json['groupBuy']),
     );
   }
 
@@ -243,6 +275,16 @@ class Product {
       'likeCount': likeCount,
       'isLiked': isLiked,
       'meetLocationDetail': meetLocationDetail,
+      'groupBuy': groupBuy != null
+          ? {
+              'itemSummary': groupBuy!.itemSummary,
+              'maxMembers': groupBuy!.maxMembers,
+              'currentMembers': groupBuy!.currentMembers,
+              'pricePerPerson': groupBuy!.pricePerPerson,
+              'orderDeadline': groupBuy!.orderDeadline.toIso8601String(),
+              'meetPlaceText': groupBuy!.meetPlaceText,
+            }
+          : null,
     };
   }
 
@@ -311,6 +353,7 @@ class Product {
     int? likeCount,
     bool? isLiked,
     String? meetLocationDetail,
+    GroupBuyInfo? groupBuy,
   }) {
     return Product(
       id: id ?? this.id,
@@ -331,6 +374,7 @@ class Product {
       likeCount: likeCount ?? this.likeCount,
       isLiked: isLiked ?? this.isLiked,
       meetLocationDetail: meetLocationDetail ?? this.meetLocationDetail,
+      groupBuy: groupBuy ?? this.groupBuy,
     );
   }
 

@@ -1286,7 +1286,33 @@ class _HomePageState extends State<HomePage> {
       x: location?.latitude ?? 0.0,
       y: location?.longitude ?? 0.0,
       meetLocationDetail: data['meetLocationDetail'] as String?,
+      groupBuy: _parseGroupBuyInfo(data['groupBuy']),
     );
+  }
+
+  /// GroupBuyInfo 파싱 헬퍼 메서드
+  GroupBuyInfo? _parseGroupBuyInfo(dynamic groupBuyData) {
+    if (groupBuyData == null || groupBuyData is! Map<String, dynamic>) {
+      return null;
+    }
+    
+    try {
+      final orderDeadline = groupBuyData['orderDeadline'];
+      return GroupBuyInfo(
+        itemSummary: groupBuyData['itemSummary'] as String? ?? '',
+        maxMembers: (groupBuyData['maxMembers'] as num?)?.toInt() ?? 0,
+        currentMembers: (groupBuyData['currentMembers'] as num?)?.toInt() ?? 0,
+        pricePerPerson: (groupBuyData['pricePerPerson'] as num?)?.toInt() ?? 0,
+        orderDeadline: orderDeadline is Timestamp
+            ? orderDeadline.toDate()
+            : (orderDeadline is String
+                ? DateTime.parse(orderDeadline)
+                : DateTime.now()),
+        meetPlaceText: groupBuyData['meetPlaceText'] as String? ?? '',
+      );
+    } catch (e) {
+      return null;
+    }
   }
 
   /// 상품 목록을 생성하는 위젯
@@ -1370,10 +1396,18 @@ class _HomePageState extends State<HomePage> {
   /// Product 리스트를 GridView로 표시
   Widget _buildProductGridView(List<Product> products) {
     var allProducts = products.map((product) {
-      // 상세 위치 정보가 있으면 우선 표시, 없으면 기본 위치 정보 표시
-      final locationText = product.meetLocationDetail?.isNotEmpty == true
-          ? product.meetLocationDetail!
-          : product.location;
+      // 같이사요 상품인 경우 만나는 위치(meetPlaceText)를 우선 표시
+      // 그 외 상품은 상세 위치 정보가 있으면 우선 표시, 없으면 기본 위치 정보 표시
+      String locationText;
+      if (product.category == ProductCategory.groupBuy && product.groupBuy != null) {
+        locationText = product.groupBuy!.meetPlaceText.isNotEmpty
+            ? product.groupBuy!.meetPlaceText
+            : product.location;
+      } else {
+        locationText = product.meetLocationDetail?.isNotEmpty == true
+            ? product.meetLocationDetail!
+            : product.location;
+      }
       return {
         'title': product.title,
         'price': product.formattedPrice,
