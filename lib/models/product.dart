@@ -155,12 +155,18 @@ class Product {
   factory Product.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     
+    // 위치 정보 파싱 (GeoPoint와 region 정보)
+    final location = data['location'] as GeoPoint?;
+    final region = data['region'] as Map<String, dynamic>?;
+    final createdAt = data['createdAt'] as Timestamp?;
+    final updatedAt = data['updatedAt'] as Timestamp?;
+    
     return Product(
       id: doc.id,
       title: data['title'] as String? ?? '',
       description: data['description'] as String? ?? '',
       price: (data['price'] as num?)?.toInt() ?? 0,
-      imageUrls: List<String>.from(data['imageUrls'] as List? ?? []),
+      imageUrls: List<String>.from(data['images'] ?? []),
       category: safeParseEnum(
         ProductCategory.values,
         data['category'],
@@ -171,17 +177,17 @@ class Product {
         data['status'],
         ProductStatus.onSale,
       ),
-      sellerId: data['sellerId'] as String? ?? '',
+      sellerId: data['sellerUid'] as String? ?? data['sellerId'] as String? ?? '',
       sellerNickname: data['sellerName'] as String? ?? data['sellerNickname'] as String? ?? '',
       sellerProfileImageUrl: data['sellerPhotoUrl'] as String? ?? data['sellerProfileImageUrl'] as String?,
-      location: data['location'] as String? ?? '',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      location: region?['name'] as String? ?? '알 수 없는 지역',
+      createdAt: createdAt?.toDate() ?? DateTime.now(),
+      updatedAt: updatedAt?.toDate() ?? DateTime.now(),
       viewCount: (data['viewCount'] as num?)?.toInt() ?? 0,
       likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
       isLiked: data['isLiked'] as bool? ?? false,
-      x: (data['x'] as num?)?.toDouble() ?? (data['latitude'] as num?)?.toDouble() ?? 0.0,
-      y: (data['y'] as num?)?.toDouble() ?? (data['longitude'] as num?)?.toDouble() ?? 0.0,
+      x: location?.latitude ?? (data['x'] as num?)?.toDouble() ?? (data['latitude'] as num?)?.toDouble() ?? 0.0,
+      y: location?.longitude ?? (data['y'] as num?)?.toDouble() ?? (data['longitude'] as num?)?.toDouble() ?? 0.0,
       meetLocationDetail: data['meetLocationDetail'] as String?,
     );
   }
