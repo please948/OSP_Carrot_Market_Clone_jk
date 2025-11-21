@@ -1,16 +1,22 @@
 /// 관리자 페이지
 ///
-/// 광고를 관리하는 관리자 전용 페이지입니다.
-/// 광고 목록 표시, 추가, 수정, 삭제 기능을 제공합니다.
+/// 광고 및 신고된 상품을 관리하는 관리자 전용 페이지입니다.
+/// 광고 목록 표시, 추가, 수정, 삭제 기능과 신고된 상품 목록 및 처리 기능을 제공합니다.
 ///
 /// @author Flutter Sandbox
-/// @version 1.0.0
+/// @version 2.0.0
 /// @since 2024-01-01
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_sandbox/models/ad.dart';
+import 'package:flutter_sandbox/models/product.dart';
 import 'package:flutter_sandbox/providers/ad_provider.dart';
+import 'package:flutter_sandbox/config/app_config.dart';
+import 'package:flutter_sandbox/services/local_app_repository.dart';
+import 'package:flutter_sandbox/pages/product_detail_page.dart';
 
 /// 관리자 페이지 위젯
 class AdminPage extends StatefulWidget {
@@ -20,7 +26,29 @@ class AdminPage extends StatefulWidget {
   State<AdminPage> createState() => _AdminPageState();
 }
 
-class _AdminPageState extends State<AdminPage> {
+class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<ReportedProduct> _reportedProducts = [];
+  bool _loadingReports = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.index == 1 && _reportedProducts.isEmpty && !_loadingReports) {
+        _loadReportedProducts();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -33,79 +61,165 @@ class _AdminPageState extends State<AdminPage> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text(
-          '광고 관리',
+          '관리자 페이지',
           style: TextStyle(
             color: Colors.black,
             fontSize: 18,
             fontWeight: FontWeight.bold,
           ),
         ),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.black,
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: Colors.teal,
+          tabs: const [
+            Tab(icon: Icon(Icons.campaign), text: '광고 관리'),
+            Tab(icon: Icon(Icons.flag), text: '신고된 상품'),
+          ],
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add, color: Colors.black),
-            onPressed: () => _showAddAdDialog(context),
-          ),
+          if (_tabController.index == 0)
+            IconButton(
+              icon: const Icon(Icons.add, color: Colors.black),
+              onPressed: () => _showAddAdDialog(context),
+            ),
         ],
       ),
-      body: Consumer<AdProvider>(
-        builder: (context, adProvider, child) {
-          if (adProvider.loading && adProvider.ads.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildAdManagementTab(),
+          _buildReportedProductsTab(),
+        ],
+      ),
+    );
+  }
 
-          if (adProvider.errorMessage != null) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text(
-                    adProvider.errorMessage!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ],
-              ),
-            );
-          }
+  /// 광고 관리 탭
+  Widget _buildAdManagementTab() {
+    return Consumer<AdProvider>(
+      builder: (context, adProvider, child) {
+        if (adProvider.loading && adProvider.ads.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          if (adProvider.ads.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.campaign_outlined,
-                    size: 64,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '등록된 광고가 없습니다',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '오른쪽 상단의 + 버튼을 눌러 광고를 추가하세요',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: adProvider.ads.length,
-            itemBuilder: (context, index) {
-              final ad = adProvider.ads[index];
-              return _buildAdCard(context, ad, adProvider);
-            },
+        if (adProvider.errorMessage != null) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  adProvider.errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ],
+            ),
           );
+        }
+
+        if (adProvider.ads.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.campaign_outlined,
+                  size: 64,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '등록된 광고가 없습니다',
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '오른쪽 상단의 + 버튼을 눌러 광고를 추가하세요',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: adProvider.ads.length,
+          itemBuilder: (context, index) {
+            final ad = adProvider.ads[index];
+            return _buildAdCard(context, ad, adProvider);
+          },
+        );
+      },
+    );
+  }
+
+  /// 신고된 상품 탭
+  Widget _buildReportedProductsTab() {
+    if (_loadingReports) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text(
+              _errorMessage!,
+              style: const TextStyle(color: Colors.red),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadReportedProducts,
+              child: const Text('다시 시도'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_reportedProducts.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.flag_outlined,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '신고된 상품이 없습니다',
+              style: TextStyle(
+                fontSize: 18,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadReportedProducts,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _reportedProducts.length,
+        itemBuilder: (context, index) {
+          final reportedProduct = _reportedProducts[index];
+          return _buildReportedProductCard(context, reportedProduct);
         },
       ),
     );
@@ -505,4 +619,330 @@ class _AdminPageState extends State<AdminPage> {
       ),
     );
   }
+
+  /// 신고된 상품 목록 로드
+  Future<void> _loadReportedProducts() async {
+    setState(() {
+      _loadingReports = true;
+      _errorMessage = null;
+    });
+
+    try {
+      List<ReportedProduct> products = [];
+
+      if (AppConfig.useFirebase) {
+        final snapshot = await FirebaseFirestore.instance
+            .collection('products')
+            .where('reported', isGreaterThan: 0)
+            .orderBy('reported', descending: true)
+            .get();
+
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+          final reportedBy = List<String>.from(data['reportedBy'] ?? []);
+          products.add(ReportedProduct(
+            productId: doc.id,
+            title: data['title'] ?? '',
+            reportedCount: data['reported'] ?? 0,
+            reportedBy: reportedBy,
+            sellerId: data['sellerId'] ?? '',
+            sellerName: data['sellerName'] ?? '',
+            createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+          ));
+        }
+      } else {
+        // 로컬 모드
+        final listings = LocalAppRepository.instance.getAllListings();
+        for (var listing in listings) {
+          final reportedCount = LocalAppRepository.instance.getReportedCount(listing.id);
+          if (reportedCount > 0) {
+            // 로컬 모드에서는 reportedBy 정보를 직접 저장하지 않으므로 빈 리스트
+            products.add(ReportedProduct(
+              productId: listing.id,
+              title: listing.title,
+              reportedCount: reportedCount,
+              reportedBy: [],
+              sellerId: listing.sellerUid,
+              sellerName: listing.sellerName,
+              createdAt: listing.createdAt,
+            ));
+          }
+        }
+        // 신고 횟수 순으로 정렬
+        products.sort((a, b) => b.reportedCount.compareTo(a.reportedCount));
+      }
+
+      if (mounted) {
+        setState(() {
+          _reportedProducts = products;
+          _loadingReports = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('신고된 상품 목록 로드 오류: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = '신고된 상품 목록을 불러오는 중 오류가 발생했습니다';
+          _loadingReports = false;
+        });
+      }
+    }
+  }
+
+  /// 신고된 상품 카드 위젯
+  Widget _buildReportedProductCard(BuildContext context, ReportedProduct reportedProduct) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    reportedProduct.title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '신고 ${reportedProduct.reportedCount}회',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '판매자: ${reportedProduct.sellerName}',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            if (reportedProduct.reportedBy.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                '신고한 사용자: ${reportedProduct.reportedBy.length}명',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _viewProduct(context, reportedProduct.productId),
+                  icon: const Icon(Icons.visibility, size: 18),
+                  label: const Text('상품 보기'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _clearReports(context, reportedProduct),
+                  icon: const Icon(Icons.clear_all, size: 18),
+                  label: const Text('신고 해제'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () => _deleteProduct(context, reportedProduct),
+                  icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                  label: const Text('상품 삭제', style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 상품 상세 페이지로 이동
+  void _viewProduct(BuildContext context, String productId) async {
+    if (AppConfig.useFirebase) {
+      final doc = await FirebaseFirestore.instance
+          .collection('products')
+          .doc(productId)
+          .get();
+      
+      if (doc.exists && mounted) {
+        final data = doc.data()!;
+        // Product 객체를 생성하여 상세 페이지로 이동
+        // 실제 구현에서는 Product.fromFirestore 같은 메서드가 필요할 수 있습니다
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProductDetailPage(
+              product: Product(
+                id: doc.id,
+                title: data['title'] ?? '',
+                description: data['description'] ?? '',
+                price: data['price'] ?? 0,
+                imageUrls: List<String>.from(data['imageUrls'] ?? []),
+                category: ProductCategory.values[data['category'] ?? 0],
+                status: ProductStatus.values[data['status'] ?? 0],
+                sellerId: data['sellerId'] ?? '',
+                sellerNickname: data['sellerName'] ?? '',
+                location: data['location'] ?? '',
+                createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+                updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+              ),
+            ),
+          ),
+        );
+      }
+    } else {
+      // 로컬 모드
+      final product = LocalAppRepository.instance.getProductById(productId);
+      if (product != null && mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProductDetailPage(product: product),
+          ),
+        );
+      }
+    }
+  }
+
+  /// 신고 해제
+  Future<void> _clearReports(BuildContext context, ReportedProduct reportedProduct) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('신고 해제'),
+        content: Text('"${reportedProduct.title}"의 신고를 모두 해제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('해제'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      if (AppConfig.useFirebase) {
+        await FirebaseFirestore.instance
+            .collection('products')
+            .doc(reportedProduct.productId)
+            .update({
+          'reported': 0,
+          'reportedBy': FieldValue.delete(),
+        });
+      } else {
+        // 로컬 모드
+        LocalAppRepository.instance.clearReports(reportedProduct.productId);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('신고가 해제되었습니다')),
+        );
+        _loadReportedProducts();
+      }
+    } catch (e) {
+      debugPrint('신고 해제 오류: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('신고 해제에 실패했습니다: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// 상품 삭제
+  Future<void> _deleteProduct(BuildContext context, ReportedProduct reportedProduct) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('상품 삭제'),
+        content: Text('"${reportedProduct.title}" 상품을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      if (AppConfig.useFirebase) {
+        await FirebaseFirestore.instance
+            .collection('products')
+            .doc(reportedProduct.productId)
+            .delete();
+      } else {
+        await LocalAppRepository.instance.deleteListing(reportedProduct.productId);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('상품이 삭제되었습니다')),
+        );
+        _loadReportedProducts();
+      }
+    } catch (e) {
+      debugPrint('상품 삭제 오류: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('상품 삭제에 실패했습니다: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+}
+
+/// 신고된 상품 모델
+class ReportedProduct {
+  final String productId;
+  final String title;
+  final int reportedCount;
+  final List<String> reportedBy;
+  final String sellerId;
+  final String sellerName;
+  final DateTime createdAt;
+
+  ReportedProduct({
+    required this.productId,
+    required this.title,
+    required this.reportedCount,
+    required this.reportedBy,
+    required this.sellerId,
+    required this.sellerName,
+    required this.createdAt,
+  });
 }

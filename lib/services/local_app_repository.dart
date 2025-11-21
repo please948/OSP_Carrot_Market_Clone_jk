@@ -368,6 +368,12 @@ class LocalAppRepository {
     return _reportedCount[listingId] ?? 0;
   }
 
+  /// 상품의 신고 해제
+  void clearReports(String listingId) {
+    _reportedBy.remove(listingId);
+    _reportedCount.remove(listingId);
+  }
+
   Future<Listing> createListing({
     required ListingType type,
     required String title,
