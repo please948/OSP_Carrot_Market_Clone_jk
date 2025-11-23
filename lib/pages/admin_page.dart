@@ -757,8 +757,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         visualDensity: VisualDensity.compact,
                       ),
                       onPressed: () =>
