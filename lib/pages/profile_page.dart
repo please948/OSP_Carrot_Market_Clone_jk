@@ -260,13 +260,6 @@ class _ProfilePageState extends State<ProfilePage>
                 : '이메일 로그인 • ${emailUser?.email ?? ''}',
             style: const TextStyle(fontSize: 14, color: Colors.grey),
           ),
-          const SizedBox(height: 4),
-
-          // 위치 정보
-          const Text(
-            '강남구 역삼동',
-            style: TextStyle(fontSize: 14, color: Colors.grey),
-          ),
           const SizedBox(height: 20),
 
           // 로그아웃 버튼
