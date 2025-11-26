@@ -38,14 +38,18 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
   String? _errorMessage;
 
   /// 광고 이미지 업로드 공용 헬퍼
+  /// 광고 이미지 업로드 공용 헬퍼
   Future<void> _pickAndUploadAdImageForDialog({
     required BuildContext context,
     required StateSetter setState,
     required TextEditingController imageUrlController,
     required void Function(bool) setUploadingImage,
-    required void Function(File?) setSelectedFile,
   }) async {
     try {
+      // 업로드 시작
+      setUploadingImage(true);
+      setState(() {});
+
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: ImageSource.gallery,
@@ -62,19 +66,12 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
         return;
       }
 
-      // 업로드 시작
-      setState(() {
-        setUploadingImage(true);
-      });
-
       final file = File(picked.path);
       final url = await _uploadAdImage(file);
 
-      // 업로드 성공 시 UI 반영
-      setState(() {
-        setSelectedFile(file);
-        imageUrlController.text = url;
-      });
+      // 성공 시 URL 반영
+      imageUrlController.text = url;
+      setState(() {});
     } catch (e) {
       debugPrint('광고 이미지 업로드 오류: $e');
       if (context.mounted) {
@@ -86,12 +83,12 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
         );
       }
     } finally {
-      // 성공/실패 상관없이 항상 false 로 복원
-      setState(() {
-        setUploadingImage(false);
-      });
+      // ★ 성공/실패 상관없이 항상 false 로 복원
+      setUploadingImage(false);
+      setState(() {});
     }
   }
+
 
 
   /// 광고 이미지 Firebase Storage 업로드
@@ -469,7 +466,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
         setState: setState,
         imageUrlController: imageUrlController,
         setUploadingImage: (value) => uploadingImage = value,
-        setSelectedFile: (file) => selectedImageFile = file,
       );
     }
 
@@ -667,7 +663,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
         setState: setState,
         imageUrlController: imageUrlController,
         setUploadingImage: (value) => uploadingImage = value,
-        setSelectedFile: (file) => selectedImageFile = file,
       );
     }
 
