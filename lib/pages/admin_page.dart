@@ -37,6 +37,63 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
   bool _loadingReports = false;
   String? _errorMessage;
 
+  /// 광고 이미지 업로드 공용 헬퍼
+  Future<void> _pickAndUploadAdImageForDialog({
+    required BuildContext context,
+    required StateSetter setState,
+    required TextEditingController imageUrlController,
+    required void Function(bool) setUploadingImage,
+    required void Function(File?) setSelectedFile,
+  }) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+      if (picked == null) return;
+
+      if (kIsWeb) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('웹에서는 현재 갤러리 업로드를 지원하지 않습니다.')),
+          );
+        }
+        return;
+      }
+
+      // 업로드 시작
+      setState(() {
+        setUploadingImage(true);
+      });
+
+      final file = File(picked.path);
+      final url = await _uploadAdImage(file);
+
+      // 업로드 성공 시 UI 반영
+      setState(() {
+        setSelectedFile(file);
+        imageUrlController.text = url;
+      });
+    } catch (e) {
+      debugPrint('광고 이미지 업로드 오류: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('이미지 업로드에 실패했습니다: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      // 성공/실패 상관없이 항상 false 로 복원
+      setState(() {
+        setUploadingImage(false);
+      });
+    }
+  }
+
+
   /// 광고 이미지 Firebase Storage 업로드
   Future<String> _uploadAdImage(File file) async {
     if (!AppConfig.useFirebase) {
@@ -407,46 +464,13 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     bool uploadingImage = false;
 
     Future<void> pickAndUploadImage(StateSetter setState) async {
-      try {
-        final picker = ImagePicker();
-        final picked = await picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 80,
-        );
-        if (picked == null) return;
-
-        if (kIsWeb) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('웹에서는 현재 갤러리 업로드를 지원하지 않습니다.')),
-            );
-          }
-          return;
-        }
-
-        setState(() {
-          uploadingImage = true;
-        });
-
-        final file = File(picked.path);
-        final url = await _uploadAdImage(file);
-
-        setState(() {
-          selectedImageFile = file;
-          imageUrlController.text = url; // Ad 에 전달할 URL
-          uploadingImage = false;
-        });
-      } catch (e) {
-        debugPrint('광고 이미지 업로드 오류: $e');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('이미지 업로드에 실패했습니다: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      await _pickAndUploadAdImageForDialog(
+        context: context,
+        setState: setState,
+        imageUrlController: imageUrlController,
+        setUploadingImage: (value) => uploadingImage = value,
+        setSelectedFile: (file) => selectedImageFile = file,
+      );
     }
 
     showDialog(
@@ -638,46 +662,13 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     bool uploadingImage = false;
 
     Future<void> pickAndUploadImage(StateSetter setState) async {
-      try {
-        final picker = ImagePicker();
-        final picked = await picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 80,
-        );
-        if (picked == null) return;
-
-        if (kIsWeb) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('웹에서는 현재 갤러리 업로드를 지원하지 않습니다.')),
-            );
-          }
-          return;
-        }
-
-        setState(() {
-          uploadingImage = true;
-        });
-
-        final file = File(picked.path);
-        final url = await _uploadAdImage(file);
-
-        setState(() {
-          selectedImageFile = file;
-          imageUrlController.text = url; // 새 URL
-          uploadingImage = false;
-        });
-      } catch (e) {
-        debugPrint('광고 이미지 업로드 오류: $e');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('이미지 업로드에 실패했습니다: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      await _pickAndUploadAdImageForDialog(
+        context: context,
+        setState: setState,
+        imageUrlController: imageUrlController,
+        setUploadingImage: (value) => uploadingImage = value,
+        setSelectedFile: (file) => selectedImageFile = file,
+      );
     }
 
     showDialog(
