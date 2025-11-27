@@ -38,7 +38,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
   String? _errorMessage;
 
   /// 광고 이미지 업로드 공용 헬퍼
-  /// 광고 이미지 업로드 공용 헬퍼
   Future<void> _pickAndUploadAdImageForDialog({
     required BuildContext context,
     required StateSetter setState,
@@ -84,8 +83,10 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
       }
     } finally {
       // ★ 성공/실패 상관없이 항상 false 로 복원
-      setUploadingImage(false);
-      setState(() {});
+      if (context.mounted) {
+        setUploadingImage(false);
+        setState(() {});
+      }
     }
   }
 
@@ -457,57 +458,8 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     final linkUrlController = TextEditingController();
     bool isActive = true;
 
-    File? selectedImageFile;
     bool uploadingImage = false;
 
-    Future<void> pickAndUploadImage(StateSetter setState) async {
-      if (uploadingImage) return;
-
-      setState(() {
-        uploadingImage = true;
-      });
-
-      try {
-        final picker = ImagePicker();
-        final picked = await picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 80,
-        );
-        if (picked == null) return;
-
-        if (kIsWeb) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('웹에서는 현재 갤러리 업로드를 지원하지 않습니다.')),
-            );
-          }
-          return;
-        }
-
-        final file = File(picked.path);
-        final url = await _uploadAdImage(file);
-
-        setState(() {
-          imageUrlController.text = url;
-        });
-      } catch (e) {
-        debugPrint('광고 이미지 업로드 오류: $e');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('이미지 업로드에 실패했습니다: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } finally {
-        if (context.mounted) {
-          setState(() {
-            uploadingImage = false; // ★ 성공/실패 상관없이 항상 false
-          });
-        }
-      }
-    }
 
     showDialog(
       context: context,
@@ -582,8 +534,15 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: ElevatedButton.icon(
-                          onPressed:
-                          uploadingImage ? null : () => pickAndUploadImage(setState),
+                          onPressed: uploadingImage
+                              ? null
+                              : () => _pickAndUploadAdImageForDialog(
+                            context: context,
+                            setState: setState,
+                            imageUrlController: imageUrlController,
+                            setUploadingImage: (isUploading) => uploadingImage = isUploading,
+                          ),
+
                           icon: uploadingImage
                               ? const SizedBox(
                             width: 16,
@@ -607,7 +566,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                                 : () {
                               setState(() {
                                 imageUrlController.clear();
-                                selectedImageFile = null;
                               });
                             },
                             child: const Text('이미지 제거'),
@@ -694,57 +652,7 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
     final linkUrlController = TextEditingController(text: ad.linkUrl);
     bool isActive = ad.isActive;
 
-    File? selectedImageFile;
     bool uploadingImage = false;
-
-    Future<void> pickAndUploadImage(StateSetter setState) async {
-      if (uploadingImage) return;
-
-      setState(() {
-        uploadingImage = true;
-      });
-
-      try {
-        final picker = ImagePicker();
-        final picked = await picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 80,
-        );
-        if (picked == null) return;
-
-        if (kIsWeb) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('웹에서는 현재 갤러리 업로드를 지원하지 않습니다.')),
-            );
-          }
-          return;
-        }
-
-        final file = File(picked.path);
-        final url = await _uploadAdImage(file);
-
-        setState(() {
-          imageUrlController.text = url;
-        });
-      } catch (e) {
-        debugPrint('광고 이미지 업로드 오류: $e');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('이미지 업로드에 실패했습니다: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } finally {
-        if (context.mounted) {
-          setState(() {
-            uploadingImage = false; // ★ 여기서도 항상 false
-          });
-        }
-      }
-    }
 
     showDialog(
       context: context,
@@ -819,8 +727,15 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
                         child: ElevatedButton.icon(
-                          onPressed:
-                          uploadingImage ? null : () => pickAndUploadImage(setState),
+                          onPressed: uploadingImage
+                              ? null
+                              : () => _pickAndUploadAdImageForDialog(
+                            context: context,
+                            setState: setState,
+                            imageUrlController: imageUrlController,
+                            setUploadingImage: (isUploading) => uploadingImage = isUploading,
+                          ),
+
                           icon: uploadingImage
                               ? const SizedBox(
                             width: 16,
@@ -844,7 +759,6 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
                                 : () {
                               setState(() {
                                 imageUrlController.clear();
-                                selectedImageFile = null;
                               });
                             },
                             child: const Text('이미지 제거'),
