@@ -68,6 +68,9 @@ class _AdminPageState extends State<AdminPage> with SingleTickerProviderStateMix
       final file = File(picked.path);
       final url = await _uploadAdImage(file);
 
+      if (!context.mounted) {
+            return;
+      }
       // 성공 시 URL 반영
       imageUrlController.text = url;
       setState(() {});
